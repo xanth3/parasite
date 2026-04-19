@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data: file: blob:; media-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <title>Parasite</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">P</div>
+        <div class="brand-text">
+          <div class="brand-name">Parasite</div>
+          <div class="brand-sub">v0.1.0</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-tab="library"><span class="nav-icon">▶</span> Library</button>
+        <button class="nav-item" data-tab="record"><span class="nav-icon">●</span> Record Stream</button>
+        <button class="nav-item" data-tab="queue"><span class="nav-icon">⇪</span> Queue <span class="badge" id="queue-badge" hidden>0</span></button>
+        <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙</span> Settings</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-row"><span id="drive-indicator"   class="dot dot-off"></span><span class="status-label">Drive</span></div>
+        <div class="status-row"><span id="obs-indicator"     class="dot dot-off"></span><span class="status-label">OBS</span></div>
+        <div class="status-row"><span id="whisper-indicator" class="dot dot-off"></span><span class="status-label">Transcribe</span></div>
+        <div class="status-row"><span id="chat-indicator"    class="dot dot-off"></span><span class="status-label">Chat heatmap</span></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- ============================ LIBRARY ============================ -->
+      <section class="tab" id="tab-library">
+        <header class="tab-header">
+          <div class="sub-tabs">
+            <button class="sub-tab active" data-sub="clips">Clips</button>
+            <button class="sub-tab" data-sub="unedited">Unedited</button>
+          </div>
+          <div class="tab-header-right">
+            <input id="search" type="search" placeholder="Search files..." />
+            <button id="refresh" class="btn btn-ghost" title="Refresh">⟳</button>
+            <button id="open-folder" class="btn btn-ghost" title="Open folder in Explorer">📁</button>
+          </div>
+        </header>
+
+        <div class="library-body">
+          <!-- Virtualized file list -->
+          <div class="file-list" id="file-list">
+            <div class="vlist-viewport" id="vlist-viewport">
+              <div class="vlist-spacer" id="vlist-spacer"></div>
+              <div class="vlist-rows" id="vlist-rows"></div>
+            </div>
+            <div class="empty" id="vlist-empty">Loading library…</div>
+          </div>
+
+          <div class="preview" id="preview">
+            <div class="preview-empty">
+              <h3>No file selected</h3>
+              <p>Pick a clip from the list to preview, scrub the chat heatmap, mark in/out points, reframe for vertical, or add it to the queue.</p>
+            </div>
+
+            <div class="preview-body" hidden>
+              <div class="player-wrap">
+                <video id="video-player" controls playsinline></video>
+                <!-- 9:16 crop overlay (toggle with the vertical button) -->
+                <div class="crop-overlay" id="crop-overlay" hidden>
+                  <div class="crop-box" id="crop-box"></div>
+                  <div class="crop-hint">Drag to position · edges resize · 9:16 locked</div>
+                </div>
+              </div>
+
+              <!-- Heatmap + scrub bar -->
+              <div class="scrub-wrap" id="scrub-wrap">
+                <canvas id="heatmap-canvas" height="28"></canvas>
+                <div class="scrub-track" id="scrub-track">
+                  <div class="scrub-played" id="scrub-played"></div>
+                  <div class="scrub-inout" id="scrub-inout" hidden></div>
+                  <div class="scrub-flags" id="scrub-flags"></div>
+                  <div class="scrub-head" id="scrub-head"></div>
+                </div>
+              </div>
+
+              <div class="preview-meta">
+                <div class="filename-row">
+                  <input id="filename-input" type="text" />
+                  <button id="filename-save" class="btn btn-subtle">Rename</button>
+                </div>
+                <div class="meta-grid">
+                  <div><span>Duration</span><strong id="meta-duration">—</strong></div>
+                  <div><span>Size</span><strong id="meta-size">—</strong></div>
+                  <div><span>Modified</span><strong id="meta-mtime">—</strong></div>
+                  <div><span>Category</span><strong id="meta-category">—</strong></div>
+                </div>
+
+                <!-- Clip (in/out + ghost) -->
+                <div class="clip-row">
+                  <button id="btn-mark-in"     class="btn btn-subtle">[ Mark In</button>
+                  <span class="timecode" id="in-time">—</span>
+                  <button id="btn-mark-out"    class="btn btn-subtle">Mark Out ]</button>
+                  <span class="timecode" id="out-time">—</span>
+                  <button id="btn-ghost-clip"  class="btn btn-primary">⚡ Ghost Clip</button>
+                  <button id="btn-vertical"    class="btn btn-subtle">9:16 Preview</button>
+                </div>
+
+                <div class="preview-actions">
+                  <button id="btn-upload"   class="btn btn-primary">↑ Upload to Drive</button>
+                  <div class="export-wrap">
+                    <button id="btn-export" class="btn btn-success">⇪ Export ▾</button>
+                    <div class="export-menu" id="export-menu" hidden>
+                      <button data-platform="youtube">YouTube</button>
+                      <button data-platform="tiktok">TikTok (vertical)</button>
+                      <button data-platform="instagram">Instagram</button>
+                      <button data-platform="twitter">Twitter / X</button>
+                    </div>
+                  </div>
+                  <button id="btn-queue-add" class="btn btn-subtle">＋ Add to Queue</button>
+                  <button id="btn-reveal"   class="btn btn-ghost">Reveal</button>
+                  <button id="btn-delete"   class="btn btn-danger">Trash</button>
+                </div>
+
+                <div class="progress-wrap" id="progress-wrap" hidden>
+                  <div class="progress-label" id="progress-label">Uploading…</div>
+                  <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+                </div>
+
+                <div class="export-title-wrap" hidden id="export-title-wrap">
+                  <label>Engaging hook (used as title)</label>
+                  <input id="export-title" type="text" placeholder="e.g. He LOST IT after this..." />
+                  <div class="row">
+                    <label class="toggle"><input id="export-useinout" type="checkbox" /> Only export In→Out range</label>
+                  </div>
+                  <div class="row">
+                    <button id="export-confirm" class="btn btn-success">Publish now</button>
+                    <button id="export-queue"   class="btn btn-subtle">Queue it</button>
+                    <button id="export-cancel"  class="btn btn-ghost">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ RECORD ============================ -->
+      <section class="tab" id="tab-record" hidden>
+        <header class="tab-header">
+          <h2>Record Stream</h2>
+          <div class="tab-header-right">
+            <span id="record-state" class="state state-idle">Idle</span>
+          </div>
+        </header>
+
+        <div class="record-body">
+          <div class="service-grid">
+            <div class="service-card" data-service="twitch">
+              <div class="service-title">Twitch</div>
+              <div class="channel-list" id="twitch-channels"></div>
+              <button class="channel add-channel" data-service="twitch">+ Add</button>
+            </div>
+            <div class="service-card" data-service="kick">
+              <div class="service-title">Kick</div>
+              <div class="channel-list" id="kick-channels"></div>
+              <button class="channel add-channel" data-service="kick">+ Add</button>
+            </div>
+          </div>
+
+          <div class="record-controls">
+            <div class="recording-target" id="recording-target">No channel selected</div>
+            <button id="btn-record-start" class="btn btn-danger">● Start Recording</button>
+            <button id="btn-record-stop"  class="btn btn-ghost" hidden>■ Stop Recording</button>
+          </div>
+
+          <!-- Live heatmap (during recording) -->
+          <div class="card">
+            <div class="row between">
+              <strong>Live chat heatmap</strong>
+              <span class="sub" id="live-heatmap-status">Waiting for chat…</span>
+            </div>
+            <canvas id="live-heatmap" height="60"></canvas>
+            <div class="sub">Spam spikes (LUL, POG, W, etc.) show up here in real time. Hotkey <kbd id="mark-hotkey-display">Ctrl+Shift+X</kbd> drops a flag at this moment.</div>
+          </div>
+
+          <div class="transcript-panel" id="transcript-panel">
+            <div class="transcript-header">
+              <strong>Live Transcript</strong>
+              <span id="transcript-status">—</span>
+            </div>
+            <div class="transcript-body" id="transcript-body">
+              <em>Transcript will appear here once recording starts with Transcribe enabled.</em>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ QUEUE ============================ -->
+      <section class="tab" id="tab-queue" hidden>
+        <header class="tab-header">
+          <h2>Batch Queue</h2>
+          <div class="tab-header-right">
+            <button id="btn-queue-clear" class="btn btn-ghost">Clear done / errored</button>
+          </div>
+        </header>
+        <div class="queue-body" id="queue-body">
+          <div class="empty">Queue is empty. Pick clips from Library and hit "Add to Queue" or "Queue it" on an export.</div>
+        </div>
+      </section>
+
+      <!-- ============================ SETTINGS ============================ -->
+      <section class="tab" id="tab-settings" hidden>
+        <header class="tab-header"><h2>Settings</h2></header>
+        <div class="settings-body">
+
+          <div class="card">
+            <h3>Library</h3>
+            <label><span>Video folder</span>
+              <div class="row">
+                <input id="set-video-root" type="text" readonly />
+                <button id="btn-pick-folder" class="btn btn-subtle">Change…</button>
+              </div>
+            </label>
+            <label><span>Clip threshold (minutes). Files longer than this land in Unedited.</span>
+              <input id="set-threshold" type="number" min="1" max="600" />
+            </label>
+          </div>
+
+          <div class="card">
+            <h3>Hotkeys</h3>
+            <label><span>Mark Clip (global)</span><input id="set-hotkey-mark" type="text" placeholder="Control+Shift+X" /></label>
+            <div class="sub">Valid modifiers: Control, Shift, Alt, Super. Example: <code>Control+Shift+X</code>. Restart of the hotkey applies on Save.</div>
+          </div>
+
+          <div class="card">
+            <h3>Chat heatmap</h3>
+            <label class="toggle">
+              <input id="set-chat-enabled" type="checkbox" />
+              <span>Record chat spam heatmap during Twitch/Kick recordings</span>
+            </label>
+            <div class="sub">Connects anonymously to Twitch IRC or Kick Pusher — no credentials needed.</div>
+          </div>
+
+          <div class="card">
+            <h3>Google Drive</h3>
+            <p class="hint">Desktop OAuth client from Google Cloud Console → APIs &amp; Services → Credentials → Desktop app.</p>
+            <label><span>Client ID</span><input id="set-drive-client" type="text" /></label>
+            <label><span>Client Secret</span><input id="set-drive-secret" type="password" /></label>
+            <div class="row">
+              <button id="btn-drive-auth"       class="btn btn-primary">Connect</button>
+              <button id="btn-drive-disconnect" class="btn btn-ghost">Disconnect</button>
+              <span id="drive-state" class="state">Not connected</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>OBS</h3>
+            <p class="hint">Tools → WebSocket Server Settings → Enable.</p>
+            <div class="row">
+              <label><span>Host</span><input id="set-obs-host" type="text" /></label>
+              <label><span>Port</span><input id="set-obs-port" type="number" /></label>
+              <label><span>Password</span><input id="set-obs-pass" type="password" /></label>
+            </div>
+            <label><span>Scene name</span><input id="set-obs-scene" type="text" /></label>
+            <label><span>Window-capture source name</span><input id="set-obs-source" type="text" /></label>
+            <div class="row">
+              <button id="btn-obs-connect" class="btn btn-primary">Test connect</button>
+              <span id="obs-state" class="state">Disconnected</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Speech-to-text (Whisper)</h3>
+            <label class="toggle">
+              <input id="set-whisper-enabled" type="checkbox" />
+              <span>Enable live transcription during recording</span>
+            </label>
+            <label><span>Model</span>
+              <select id="set-whisper-model">
+                <option value="tiny.en">tiny.en</option>
+                <option value="base.en" selected>base.en (recommended)</option>
+                <option value="small.en">small.en</option>
+                <option value="medium.en">medium.en</option>
+              </select>
+            </label>
+            <button id="btn-whisper-test" class="btn btn-subtle">Run self-test</button>
+            <span id="whisper-state" class="state">Idle</span>
+          </div>
+
+          <div class="card">
+            <h3>Exports</h3>
+            <details class="expo"><summary>YouTube</summary>
+              <label><span>OAuth Client ID</span><input id="set-yt-client" type="text" /></label>
+              <label><span>OAuth Client Secret</span><input id="set-yt-secret" type="password" /></label>
+              <label><span>Refresh Token (scope: youtube.upload)</span><input id="set-yt-refresh" type="password" /></label>
+            </details>
+            <details class="expo"><summary>TikTok</summary>
+              <label><span>Client Key</span><input id="set-tt-key" type="text" /></label>
+              <label><span>Client Secret</span><input id="set-tt-secret" type="password" /></label>
+              <label><span>Access Token</span><input id="set-tt-access" type="password" /></label>
+            </details>
+            <details class="expo"><summary>Instagram</summary>
+              <label><span>Business Account ID</span><input id="set-ig-user" type="text" /></label>
+              <label><span>Long-lived Access Token</span><input id="set-ig-access" type="password" /></label>
+            </details>
+            <details class="expo"><summary>Twitter / X</summary>
+              <label><span>API Key</span><input id="set-tw-key" type="text" /></label>
+              <label><span>API Secret</span><input id="set-tw-secret" type="password" /></label>
+              <label><span>Access Token</span><input id="set-tw-access" type="password" /></label>
+              <label><span>Access Secret</span><input id="set-tw-access-secret" type="password" /></label>
+            </details>
+          </div>
+
+          <div class="card">
+            <button id="btn-save-settings" class="btn btn-primary">Save all settings</button>
+            <button id="btn-crash-test"    class="btn btn-ghost">Test crash screen</button>
+            <span id="settings-saved" class="state" hidden>Saved ✓</span>
+          </div>
+
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="renderer.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Parasite — Crash Report</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    body { padding: 24px; overflow: auto; user-select: text; }
+    .crash-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .crash-header .mark {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--danger); color: white; font-size: 24px;
+      display: flex; align-items: center; justify-content: center; font-weight: 700;
+    }
+    h1 { margin: 0; font-size: 20px; }
+    .sub { color: var(--text-muted); font-size: 13px; }
+    .panel {
+      background: var(--bg-raised); border-radius: 10px; padding: 16px; margin: 14px 0;
+    }
+    .guess { font-size: 14px; line-height: 1.5; }
+    .actions { display: flex; gap: 8px; margin-top: 16px; }
+    details pre {
+      background: var(--bg-input); padding: 10px; border-radius: 6px;
+      font-size: 12px; overflow: auto; max-height: 240px; white-space: pre-wrap;
+      color: var(--text-muted);
+    }
+    .muted { color: var(--text-dim); font-size: 12px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="crash-header">
+    <div class="mark">!</div>
+    <div>
+      <h1>Parasite ran into trouble</h1>
+      <div class="sub" id="when">—</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <strong>What probably happened</strong>
+    <div class="guess" id="guess">Loading report…</div>
+  </div>
+
+  <div class="panel">
+    <strong>Error</strong>
+    <div id="message" class="sub" style="margin-top: 6px;">—</div>
+  </div>
+
+  <details>
+    <summary>Full technical report (hidden from email body unless you hit "Send Feedback")</summary>
+    <pre id="report">—</pre>
+  </details>
+
+  <div class="actions">
+    <button id="send" class="btn btn-primary">✉ Send Feedback</button>
+    <button id="copy" class="btn btn-subtle">Copy report</button>
+    <button id="close" class="btn btn-ghost">Close</button>
+  </div>
+
+  <div class="muted">
+    Sending feedback opens your default mail app with a pre-filled message to
+    <code>noreply@parasitebrands.com</code>. The full technical report is attached
+    so we can reproduce the issue. Nothing leaves your computer until you hit Send.
+  </div>
+
+  <script>
+    (async () => {
+      const report = await window.api.crash.last();
+      if (!report) { document.body.innerHTML = '<p>No crash report found.</p>'; return; }
+
+      document.getElementById('when').textContent = `${report.when} • ${report.env.os} • Parasite ${report.app.version}`;
+      document.getElementById('guess').textContent = report.guess;
+      document.getElementById('message').textContent = report.message;
+      document.getElementById('report').textContent = JSON.stringify(report, null, 2);
+
+      document.getElementById('copy').addEventListener('click', () => {
+        navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+      });
+      document.getElementById('close').addEventListener('click', () => window.close());
+      document.getElementById('send').addEventListener('click', () => {
+        const subject = encodeURIComponent(`[Parasite crash] ${report.message.slice(0, 80)}`);
+        const body = encodeURIComponent(
+          'Hey Parasite team,\n\n' +
+          'Parasite just crashed. Full report below (auto-generated).\n\n' +
+          '----- BEGIN REPORT -----\n' +
+          JSON.stringify(report, null, 2) +
+          '\n----- END REPORT -----\n'
+        );
+        const url = `mailto:noreply@parasitebrands.com?subject=${subject}&body=${body}`;
+        window.api.openExternal(url);
+      });
+    })();
+  </script>
+</body>
+</html>
