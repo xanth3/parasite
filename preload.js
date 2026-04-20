@@ -77,6 +77,12 @@ const api = {
   crash: {
     last:           ()          => ipcRenderer.invoke('crash:lastReport'),
     simulate:       ()          => ipcRenderer.invoke('crash:simulate')
+  },
+
+  // Dev tools (only meaningful when launched with --dev)
+  isDev: process.argv.includes('--dev'),
+  dev: {
+    injectHeatmap:  (p)         => ipcRenderer.invoke('dev:injectHeatmap', p)
   }
 };
 

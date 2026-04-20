@@ -58,6 +58,20 @@ export async function mountSettings({ onChange, toast }) {
     try { await window.api.crash.simulate(); }
     catch (e) { _toast('Simulated crash triggered.', 'info'); }
   });
+
+  if (window.api.isDev) {
+    $('#dev-tools-card').hidden = false;
+    $('#btn-inject-heatmap').addEventListener('click', async () => {
+      const stateEl = $('#inject-heatmap-state');
+      try {
+        stateEl.textContent = 'Injecting…';
+        const res = await window.api.dev.injectHeatmap();
+        stateEl.textContent = `Done — ${res.buckets} buckets on "${res.video}". Switch to Library and click the file.`;
+      } catch (e) {
+        stateEl.textContent = 'Error: ' + e.message;
+      }
+    });
+  }
 }
 
 function hydrate() {

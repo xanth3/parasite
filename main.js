@@ -338,6 +338,29 @@ ipcMain.handle('queue:clearDone',  ()        => db.clearDoneQueue());
 // --- IPC: crash --------------------------------------------------------
 
 ipcMain.handle('crash:simulate',   ()        => { throw new Error('Simulated crash from Settings'); });
+ipcMain.handle('dev:injectHeatmap', async (_e, filePath) => {
+  // Picks the most-recently modified video if no path given.
+  const row = filePath ? db.getVideo(filePath) : db.listVideos()[0];
+  if (!row) throw new Error('No video in library. Add a video file to your Parasite folder first.');
+
+  const BUCKET_MS = 30_000;
+  const totalBuckets = Math.ceil((row.duration * 1000) / BUCKET_MS) || 120;
+  const buckets = [];
+  for (let i = 0; i < totalBuckets; i++) {
+    let v = Math.random() * 0.5;
+    if (Math.random() < 0.15) v += 3 + Math.random() * 10;
+    if (v > 0.2) buckets.push({ t: i * BUCKET_MS, v: parseFloat(v.toFixed(2)) });
+  }
+  const heatmapData = {
+    service: 'dev', channel: 'fake-test',
+    startMs: Date.now() - row.duration * 1000,
+    bucketMs: BUCKET_MS, buckets
+  };
+  const heatmapPath = row.path.replace(/\.[^.]+$/, '') + '-heatmap-test.json';
+  fs.writeFileSync(heatmapPath, JSON.stringify(heatmapData, null, 2));
+  db.upsertVideoRow({ ...row, heatmap_path: heatmapPath });
+  return { video: row.name, heatmapPath, buckets: buckets.length };
+});
 ipcMain.handle('open:external',    (_e, url) => shell.openExternal(url));
 
 // --- Global hotkeys ----------------------------------------------------

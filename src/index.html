@@ -319,6 +319,16 @@
             <span id="settings-saved" class="state" hidden>Saved ✓</span>
           </div>
 
+          <div class="card" id="dev-tools-card" hidden>
+            <h3>Dev tools</h3>
+            <p class="hint">Only visible when launched with <code>npm run dev</code>.</p>
+            <div class="row">
+              <button id="btn-inject-heatmap" class="btn btn-subtle">Inject fake heatmap</button>
+              <span id="inject-heatmap-state" class="state"></span>
+            </div>
+            <div class="sub">Generates a random chat-spike heatmap on the most recent video in your library so you can test the scrubber overlay without doing a real recording.</div>
+          </div>
+
         </div>
       </section>
     </main>
