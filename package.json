@@ -30,6 +30,7 @@
     "mime-types": "^2.1.35",
     "node-fetch": "^2.7.0",
     "whisper-node": "^1.1.1",
+    "twitter-api-v2": "^1.19.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

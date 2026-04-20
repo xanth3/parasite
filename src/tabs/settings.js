@@ -138,16 +138,13 @@ async function persist() {
 
 async function onDriveConnect() {
   await persist();
+  const stateEl = $('#drive-state');
   try {
-    const { url } = await window.api.drive.startAuth();
-    window.api.openExternal(url);
-    const code = prompt(
-      'A Google consent page opened in your browser.\n' +
-      'After authorizing, copy the `code` query parameter from the redirect URL and paste it here:'
-    );
-    if (!code) return;
-    const res = await window.api.drive.completeAuth(code);
-    $('#drive-state').textContent = res.connected ? 'Connected ✓' : 'Auth failed';
+    stateEl.textContent = 'Waiting for browser authorization…';
+    const res = await window.api.drive.startAuth();
+    stateEl.textContent = res.connected ? 'Connected ✓' : 'Auth failed';
     _onChange();
-  } catch (e) { $('#drive-state').textContent = 'Error: ' + e.message; }
+  } catch (e) {
+    stateEl.textContent = 'Error: ' + e.message;
+  }
 }

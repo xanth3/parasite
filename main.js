@@ -236,8 +236,7 @@ ipcMain.handle('clip:vertical', async (_e, { sourcePath, inSec, outSec, crop }) 
 // --- IPC: drive --------------------------------------------------------
 
 ipcMain.handle('drive:status', () => drive.status(store));
-ipcMain.handle('drive:startAuth', async () => drive.startAuth(store));
-ipcMain.handle('drive:completeAuth', async (_e, code) => drive.completeAuth(store, code));
+ipcMain.handle('drive:startAuth', async () => drive.startAuth(store, (url) => shell.openExternal(url)));
 ipcMain.handle('drive:disconnect', () => drive.disconnect(store));
 ipcMain.handle('drive:upload', async (_e, filePath) => {
   return drive.uploadWithProgress(store, filePath, (p) => emit('drive:progress', { filePath, ...p }));

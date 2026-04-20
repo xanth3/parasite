@@ -32,7 +32,6 @@ const api = {
   drive: {
     status:         ()          => ipcRenderer.invoke('drive:status'),
     startAuth:      ()          => ipcRenderer.invoke('drive:startAuth'),
-    completeAuth:   (code)      => ipcRenderer.invoke('drive:completeAuth', code),
     disconnect:     ()          => ipcRenderer.invoke('drive:disconnect'),
     upload:         (p)         => ipcRenderer.invoke('drive:upload', p),
     onProgress:     (cb)        => ipcRenderer.on('drive:progress', (_e, p) => cb(p))

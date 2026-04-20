@@ -10,7 +10,6 @@
 const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
-const FormData = require('form-data') || null; // not required for all paths
 
 // ---------------------------------------------------------------- YouTube
 // Uses the YouTube Data API v3 resumable upload endpoint.
@@ -155,18 +154,28 @@ async function exportInstagram({ filePath, title, credentials, onProgress, hoste
 }
 
 // ---------------------------------------------------------------- Twitter/X
-// Uses v1.1 chunked media upload (v2 tweets endpoint for the post).
-// Requires: apiKey, apiSecret, accessToken, accessSecret (user context OAuth1).
+// Uses twitter-api-v2: v1.1 chunked media upload + v2 tweet post.
+// Requires: apiKey, apiSecret, accessToken, accessSecret (user OAuth1 keys).
 
 async function exportTwitter({ filePath, title, credentials, onProgress }) {
-  // Note: full OAuth1 signing is non-trivial; keeping this as a clear
-  // integration point. Recommended: use the `twitter-api-v2` npm package
-  // once you have the four keys. For now throw a descriptive error so
-  // users know exactly what to add.
-  throw new Error(
-    'Twitter/X export needs twitter-api-v2 integration with your four OAuth1 keys. ' +
-    'Add apiKey, apiSecret, accessToken, accessSecret under Settings > Exports > Twitter.'
-  );
+  const { apiKey, apiSecret, accessToken, accessSecret } = credentials || {};
+  if (!apiKey || !apiSecret || !accessToken || !accessSecret) {
+    throw new Error(
+      'Twitter/X requires four OAuth1 keys. Add apiKey, apiSecret, accessToken, ' +
+      'and accessSecret under Settings → Exports → Twitter.'
+    );
+  }
+
+  const { TwitterApi } = require('twitter-api-v2');
+  const client = new TwitterApi({ appKey: apiKey, appSecret: apiSecret, accessToken, accessSecret });
+
+  onProgress?.({ uploaded: 0, total: 1, pct: 0 });
+  const mediaId = await client.v1.uploadMedia(filePath, { mimeType: 'video/mp4' });
+  onProgress?.({ uploaded: 0.9, total: 1, pct: 0.9 });
+
+  const tweet = await client.v2.tweet({ text: title || '', media: { media_ids: [mediaId] } });
+  onProgress?.({ uploaded: 1, total: 1, pct: 1, done: true });
+  return { id: tweet.data.id, url: `https://x.com/i/web/status/${tweet.data.id}` };
 }
 
 // ---------------------------------------------------------------- Dispatcher
