@@ -251,8 +251,15 @@
       </section>
 
       <section class="tab" id="tab-settings" hidden>
-        <header class="tab-header"><h2>Settings</h2></header>
-        <div class="settings-body">
+        <header class="tab-header">
+          <div class="sub-tabs">
+            <button class="sub-tab active" data-settings-sub="general">General</button>
+            <button class="sub-tab" data-settings-sub="unedited">Unedited</button>
+          </div>
+        </header>
+
+        <!-- General panel -->
+        <div class="settings-body" id="settings-panel-general">
           <div class="card">
             <h3>Library</h3>
             <label><span>Video folder</span>
@@ -366,7 +373,95 @@
             </div>
             <div class="sub">Generates a fake heatmap on the latest library item so you can test the timeline without a live recording.</div>
           </div>
-        </div>
+        </div><!-- /settings-panel-general -->
+
+        <!-- Unedited gallery panel (library-style split layout) -->
+        <div class="library-body" id="settings-panel-unedited" hidden>
+          <div class="file-list" id="unedited-file-list">
+            <div class="unedited-path-row">
+              <input id="set-unedited-root" type="text" readonly />
+              <button id="btn-pick-unedited-folder" class="btn btn-subtle">Change…</button>
+            </div>
+            <div class="vlist-viewport" id="unedited-vlist-viewport">
+              <div class="vlist-spacer" id="unedited-vlist-spacer"></div>
+              <div class="vlist-rows" id="unedited-vlist-rows"></div>
+            </div>
+            <div class="empty" id="unedited-vlist-empty">No unedited files ≥ 5 GB found.</div>
+          </div>
+
+          <div class="preview" id="unedited-preview">
+            <div class="preview-empty" id="unedited-preview-empty">
+              <h3>No item selected</h3>
+              <p>Select a video from the list to preview it and view its heatmap. Only videos 5 GB or larger are shown.</p>
+            </div>
+
+            <div class="preview-body" id="unedited-preview-body" hidden>
+              <div class="card preview-banner" id="unedited-playback-banner" hidden></div>
+
+              <div class="player-wrap">
+                <video id="unedited-video-player" controls playsinline></video>
+                <div class="video-unavailable" id="unedited-video-unavailable" hidden>
+                  <strong>Heatmap-only mode</strong>
+                  <span>This item has no playable media attached.</span>
+                </div>
+              </div>
+
+              <div class="card timeline-card">
+                <div class="timeline-header">
+                  <div>
+                    <strong>Heatmap timeline</strong>
+                    <div class="sub" id="unedited-heatmap-meta">No heatmap loaded yet.</div>
+                  </div>
+                  <button id="unedited-btn-reset-zoom" class="btn btn-ghost">Reset Zoom</button>
+                </div>
+                <div class="timeline-wrap" id="unedited-timeline-wrap">
+                  <div class="timeline-lane">
+                    <canvas id="unedited-heatmap-overview" height="52"></canvas>
+                    <div id="unedited-overview-window"></div>
+                  </div>
+                  <div class="timeline-lane detail-lane">
+                    <canvas id="unedited-heatmap-detail" height="96"></canvas>
+                  </div>
+                  <div class="timeline-tooltip" id="unedited-timeline-tooltip" hidden></div>
+                </div>
+              </div>
+
+              <div class="card build-card" id="unedited-heatmap-build-card" hidden>
+                <div class="build-card-header">
+                  <div>
+                    <strong>Build heatmap</strong>
+                    <div class="sub" id="unedited-heatmap-suggestion">Paste a Twitch VOD URL or import normalized chat JSON.</div>
+                  </div>
+                </div>
+                <label class="stack">
+                  <span>Twitch VOD URL or VOD ID</span>
+                  <div class="row">
+                    <input id="unedited-vod-input" type="text" placeholder="https://www.twitch.tv/videos/123456789" />
+                    <button id="unedited-btn-build-vod" class="btn btn-primary">Build from Twitch</button>
+                  </div>
+                </label>
+                <div class="row">
+                  <button id="unedited-btn-import-json" class="btn btn-subtle">Import Chat JSON</button>
+                  <button id="unedited-btn-build-cancel" class="btn btn-ghost" hidden>Cancel Build</button>
+                </div>
+                <div class="progress-wrap" id="unedited-heatmap-job-wrap" hidden>
+                  <div class="progress-label" id="unedited-heatmap-job-label">Waiting…</div>
+                  <div class="progress"><div class="progress-bar" id="unedited-heatmap-job-bar"></div></div>
+                </div>
+              </div>
+
+              <div class="preview-meta">
+                <div class="meta-grid">
+                  <div><span>Duration</span><strong id="unedited-meta-duration">—</strong></div>
+                  <div><span>Size</span><strong id="unedited-meta-size">—</strong></div>
+                  <div><span>Modified</span><strong id="unedited-meta-mtime">—</strong></div>
+                  <div><span>Source</span><strong id="unedited-meta-source">—</strong></div>
+                  <div><span>Playback</span><strong id="unedited-meta-playback">—</strong></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div><!-- /settings-panel-unedited -->
       </section>
     </main>
   </div>

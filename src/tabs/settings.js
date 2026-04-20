@@ -5,12 +5,35 @@ const $ = (sel, root = document) => root.querySelector(sel);
 let settings = null;
 let _onChange;
 let _toast;
+let _activateUnedited;
+let _deactivateUnedited;
+
+export function registerUneditedGallery(activate, deactivate) {
+  _activateUnedited = activate;
+  _deactivateUnedited = deactivate;
+}
 
 export async function mountSettings({ onChange, toast }) {
   _onChange = onChange || (() => {});
   _toast = toast || (() => {});
   settings = await window.api.getSettings();
   hydrate();
+
+  // Sub-tab switching
+  document.querySelectorAll('#tab-settings .sub-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const sub = btn.dataset.settingsSub;
+      document.querySelectorAll('#tab-settings .sub-tab').forEach(b => b.classList.toggle('active', b === btn));
+      const showGeneral = sub === 'general';
+      $('#settings-panel-general').hidden = !showGeneral;
+      $('#settings-panel-unedited').hidden = showGeneral;
+      if (showGeneral) {
+        _deactivateUnedited?.();
+      } else {
+        _activateUnedited?.();
+      }
+    });
+  });
 
   $('#btn-pick-folder').addEventListener('click', async () => {
     const picked = await window.api.pickVideoFolder();

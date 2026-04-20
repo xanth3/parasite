@@ -6,6 +6,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut } = require('
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const path = require('path');
 const fs = require('fs');

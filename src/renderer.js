@@ -2,8 +2,9 @@
 
 import { mountLibrary } from './tabs/library.js';
 import { mountRecord } from './tabs/record.js';
-import { mountSettings } from './tabs/settings.js';
+import { mountSettings, registerUneditedGallery } from './tabs/settings.js';
 import { mountQueue } from './tabs/queue.js';
+import { mountUneditedGallery, activateUneditedGallery, deactivateUneditedGallery } from './tabs/unedited-gallery.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -46,7 +47,9 @@ async function refreshIndicators() {
 
 // Boot
 (async () => {
+  registerUneditedGallery(activateUneditedGallery, deactivateUneditedGallery);
   await mountSettings({ onChange: refreshIndicators, toast });
+  await mountUneditedGallery({ toast });
   await mountLibrary({ toast });
   await mountRecord({ toast });
   await mountQueue({ toast });

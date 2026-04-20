@@ -210,6 +210,7 @@ async function syncCurrentItem(item, options) {
   const token = ++selectionToken;
   currentItem = item;
   currentHeatmapJob = item.heatmap;
+  runtimePlaybackError = null;
 
   if (!options.preserveMarkers) {
     inPoint = null;
@@ -218,7 +219,9 @@ async function syncCurrentItem(item, options) {
   }
 
   $('#preview .preview-empty').hidden = true;
-  $('#preview .preview-body').hidden = false;
+  const previewBody = $('#preview .preview-body');
+  previewBody.hidden = false;
+  previewBody.dataset.category = item.category;
 
   if (!options.keepTimeline) initializeTimelineWindow(item);
   hydrateItemMeta(item);
@@ -300,7 +303,7 @@ function describeVodSuggestion(item) {
 }
 
 function updateActionAvailability() {
-  const hasMedia = !!currentItem?.path && currentItem.playback.available && !runtimePlaybackError;
+  const hasMedia = !!currentItem?.path && !runtimePlaybackError;
   $('#filename-input').disabled = !currentItem?.path;
   $('#filename-save').disabled = !currentItem?.path;
   $('#btn-reveal').disabled = !currentItem?.path;
@@ -316,8 +319,9 @@ function updateActionAvailability() {
 function renderPlaybackState() {
   const banner = $('#playback-banner');
   const videoUnavailable = $('#video-unavailable');
-  const hasMedia = !!currentItem?.path && currentItem.playback.available && !runtimePlaybackError;
-  const errorText = runtimePlaybackError || currentItem?.playback?.error || null;
+  // hasMedia: path exists and no runtime error — let the video element handle decode failures
+  const hasMedia = !!currentItem?.path && !runtimePlaybackError;
+  const errorText = runtimePlaybackError || null;
 
   banner.hidden = !errorText;
   banner.textContent = errorText || '';
@@ -327,9 +331,9 @@ function renderPlaybackState() {
 
 function loadVideoForItem(item) {
   const video = $('#video-player');
-  const canPlay = !!item.path && item.playback.available;
-  if (!canPlay) {
-    runtimePlaybackError = item.playback.error || (item.path ? 'Media playback is unavailable.' : 'No media attached.');
+  if (!item.path) {
+    // Heatmap-only import — no file on disk
+    runtimePlaybackError = 'No media attached.';
     video.pause();
     video.removeAttribute('src');
     video.load();
@@ -343,7 +347,9 @@ function loadVideoForItem(item) {
     return;
   }
 
+  // Always try to load — let the video element's error event handle decode failures
   runtimePlaybackError = null;
+  video.muted = false;
   video.dataset.itemId = String(item.id);
   video.src = src;
   video.load();
@@ -932,6 +938,8 @@ function patchItemHeatmap(itemId, patch) {
 function updateBuildCard() {
   if (!currentItem) return;
   const card = $('#heatmap-build-card');
+  // Clips never get heatmaps
+  if (currentItem.category === 'clips') { card.hidden = true; return; }
   const showCard = currentItem.heatmap.status !== 'ready';
   card.hidden = !showCard;
 
