@@ -22,6 +22,9 @@ let runtimePlaybackError = null;
 let crop = { x: 0.275, y: 0, w: 0.45, h: 1.0 };
 let cropActive = false;
 
+let trimStart = 0;
+let trimEnd = 0;
+
 const timeline = {
   detailStartSec: 0,
   detailWindowSec: 600,
@@ -84,6 +87,21 @@ export async function mountLibrary({ toast }) {
   $('#btn-mark-out').addEventListener('click', () => setInOut('out'));
   $('#btn-ghost-clip').addEventListener('click', onGhostClip);
   $('#btn-vertical').addEventListener('click', onToggleVertical);
+
+  // Trim card (clips only)
+  $('#btn-trim-set-in').addEventListener('click', () => {
+    const video = $('#video-player');
+    trimStart = Math.min(video.currentTime, trimEnd - 0.1);
+    renderTrimBar();
+  });
+  $('#btn-trim-set-out').addEventListener('click', () => {
+    const video = $('#video-player');
+    trimEnd = Math.max(video.currentTime, trimStart + 0.1);
+    renderTrimBar();
+  });
+  $('#btn-trim-copy').addEventListener('click', onTrimCopy);
+  $('#btn-trim-save').addEventListener('click', onTrimSave);
+  initTrimDrag();
 
   const video = $('#video-player');
   video.addEventListener('timeupdate', () => {
@@ -242,6 +260,12 @@ async function syncCurrentItem(item, options) {
   updateBuildCard();
   updateActionAvailability();
   drawTimelines();
+
+  if (item.category === 'clips') {
+    trimStart = 0;
+    trimEnd = item.duration || 0;
+    renderTrimBar();
+  }
 }
 
 async function loadFlags(itemId) {
@@ -971,6 +995,95 @@ function updateBuildCard() {
   } else {
     wrap.hidden = true;
     bar.style.width = '0%';
+  }
+}
+
+// ── Trim (clips only) ────────────────────────────────────────────────────
+
+function renderTrimBar() {
+  const dur = currentItem?.duration || 0;
+  if (!dur) return;
+  const startPct = (trimStart / dur) * 100;
+  const endPct   = (trimEnd   / dur) * 100;
+  $('#trim-filled').style.left  = startPct + '%';
+  $('#trim-filled').style.width = (endPct - startPct) + '%';
+  $('#trim-handle-start').style.left = startPct + '%';
+  $('#trim-handle-end').style.left   = endPct   + '%';
+  const trimDur = trimEnd - trimStart;
+  $('#trim-range-label').textContent =
+    `${formatTimelineTime(trimStart)} → ${formatTimelineTime(trimEnd)}  (${formatTimelineTime(trimDur)})`;
+}
+
+function initTrimDrag() {
+  const track = $('#trim-track');
+  let activeHandle = null;
+
+  track.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.trim-handle');
+    if (!handle) return;
+    activeHandle = handle.dataset.handle;
+    track.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  track.addEventListener('pointermove', (e) => {
+    if (!activeHandle || !currentItem?.duration) return;
+    const rect = track.getBoundingClientRect();
+    const frac = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+    const sec  = frac * currentItem.duration;
+    if (activeHandle === 'start') {
+      trimStart = Math.min(sec, trimEnd - 0.1);
+      $('#video-player').currentTime = trimStart;
+    } else {
+      trimEnd = Math.max(sec, trimStart + 0.1);
+      $('#video-player').currentTime = trimEnd;
+    }
+    renderTrimBar();
+  });
+
+  track.addEventListener('pointerup', () => { activeHandle = null; });
+  track.addEventListener('pointercancel', () => { activeHandle = null; });
+}
+
+function showTrimProgress(label, pct, done) {
+  const wrap = $('#trim-progress-wrap');
+  wrap.hidden = false;
+  $('#trim-progress-label').textContent = label;
+  $('#trim-progress-bar').style.width = `${Math.round((pct || 0) * 100)}%`;
+  if (done) setTimeout(() => { wrap.hidden = true; }, 1500);
+}
+
+async function onTrimCopy() {
+  if (!currentItem?.path) return;
+  try {
+    showTrimProgress('Saving copy…', 0.2, false);
+    const out = await window.api.clip.trimCopy({
+      sourcePath: currentItem.path,
+      inSec: trimStart,
+      outSec: trimEnd
+    });
+    showTrimProgress('Done.', 1, true);
+    _toast(`Saved: ${out.split(/[/\\]/).pop()}`, 'success');
+  } catch (e) {
+    showTrimProgress('', 0, true);
+    _toast(`Trim failed: ${e.message}`, 'error');
+  }
+}
+
+async function onTrimSave() {
+  if (!currentItem?.path) return;
+  try {
+    showTrimProgress('Trimming and replacing…', 0.2, false);
+    await window.api.clip.trimOverwrite({
+      sourcePath: currentItem.path,
+      inSec: trimStart,
+      outSec: trimEnd
+    });
+    showTrimProgress('Saved.', 1, true);
+    _toast('Clip replaced.', 'success');
+  } catch (e) {
+    showTrimProgress('', 0, true);
+    _toast(`Trim failed: ${e.message}`, 'error');
   }
 }
 

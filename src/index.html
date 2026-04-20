@@ -13,7 +13,33 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">P</div>
+        <div class="brand-mark">
+          <svg viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="worm-grad" x1="4" y1="32" x2="30" y2="4" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#2d3bbf"/>
+                <stop offset="100%" stop-color="#8f9dff"/>
+              </linearGradient>
+            </defs>
+            <!-- Curved worm body -->
+            <path d="M8 30 C4 22 4 14 12 11 C19 8 21 3 21 3"
+                  stroke="url(#worm-grad)" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+            <!-- Segmentation rings -->
+            <path d="M8 30 C4 22 4 14 12 11 C19 8 21 3 21 3"
+                  stroke="rgba(0,0,40,0.22)" stroke-width="8.5" stroke-linecap="round"
+                  stroke-dasharray="2.5 5" fill="none"/>
+            <!-- Head -->
+            <circle cx="23" cy="7" r="7" fill="#6b7cff"/>
+            <!-- Head sheen -->
+            <ellipse cx="21" cy="5" rx="3" ry="2" fill="rgba(255,255,255,0.2)" transform="rotate(-20 21 5)"/>
+            <!-- Eye white -->
+            <circle cx="26" cy="5" r="2.3" fill="white" opacity="0.95"/>
+            <!-- Pupil -->
+            <circle cx="26.5" cy="5" r="1.1" fill="#0d0628"/>
+            <!-- Eye shine -->
+            <circle cx="26" cy="4.4" r="0.45" fill="white" opacity="0.85"/>
+          </svg>
+        </div>
         <div class="brand-text">
           <div class="brand-name">Parasite</div>
           <div class="brand-sub">v0.1.0</div>
@@ -39,8 +65,27 @@
       <section class="tab" id="tab-library">
         <header class="tab-header">
           <div class="sub-tabs">
-            <button class="sub-tab active" data-sub="clips">Clips</button>
-            <button class="sub-tab" data-sub="unedited">Unedited</button>
+            <button class="sub-tab active" data-sub="clips">
+              <svg class="sub-tab-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="5.5" width="12" height="8" rx="1.2" stroke="currentColor" stroke-width="1.4"/>
+                <line x1="2" y1="8.5" x2="14" y2="8.5" stroke="currentColor" stroke-width="1.4"/>
+                <line x1="5" y1="5.5" x2="4" y2="2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <line x1="8.5" y1="5.5" x2="7.5" y2="2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <line x1="12" y1="5.5" x2="11" y2="2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+              Clips
+            </button>
+            <button class="sub-tab" data-sub="unedited">
+              <svg class="sub-tab-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/>
+                <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.4"/>
+                <line x1="8" y1="2.5" x2="8" y2="4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <line x1="8" y1="11.5" x2="8" y2="13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <line x1="2.5" y1="8" x2="4.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <line x1="11.5" y1="8" x2="13.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+              Unedited
+            </button>
           </div>
           <div class="tab-header-right">
             <input id="search" type="search" placeholder="Search library" />
@@ -78,6 +123,31 @@
                 <div class="crop-overlay" id="crop-overlay" hidden>
                   <div class="crop-box" id="crop-box"></div>
                   <div class="crop-hint">Drag to position the 9:16 crop window.</div>
+                </div>
+              </div>
+
+              <div class="card" id="trim-card">
+                <div class="trim-header">
+                  <strong>Trim</strong>
+                  <span class="sub" id="trim-range-label">—</span>
+                </div>
+                <div class="trim-track-wrap">
+                  <div class="trim-track" id="trim-track">
+                    <div class="trim-filled" id="trim-filled"></div>
+                    <div class="trim-handle" id="trim-handle-start" data-handle="start"></div>
+                    <div class="trim-handle" id="trim-handle-end" data-handle="end"></div>
+                  </div>
+                </div>
+                <div class="trim-actions">
+                  <button id="btn-trim-set-in"  class="btn btn-subtle">Set In</button>
+                  <button id="btn-trim-set-out" class="btn btn-subtle">Set Out</button>
+                  <span class="trim-spacer"></span>
+                  <button id="btn-trim-copy"    class="btn btn-subtle">Duplicate</button>
+                  <button id="btn-trim-save"    class="btn btn-primary">Overwrite</button>
+                </div>
+                <div class="progress-wrap" id="trim-progress-wrap" hidden>
+                  <div class="progress-label" id="trim-progress-label">Trimming…</div>
+                  <div class="progress"><div class="progress-bar" id="trim-progress-bar"></div></div>
                 </div>
               </div>
 
@@ -251,132 +321,169 @@
       </section>
 
       <section class="tab" id="tab-settings" hidden>
-        <header class="tab-header">
-          <div class="sub-tabs">
-            <button class="sub-tab active" data-settings-sub="general">General</button>
-            <button class="sub-tab" data-settings-sub="unedited">Unedited</button>
-          </div>
-        </header>
+        <div class="settings-layout">
 
-        <!-- General panel -->
-        <div class="settings-body" id="settings-panel-general">
-          <div class="card">
-            <h3>Library</h3>
-            <label><span>Video folder</span>
-              <div class="row">
-                <input id="set-video-root" type="text" readonly />
-                <button id="btn-pick-folder" class="btn btn-subtle">Change…</button>
+          <!-- Discord-style vertical nav -->
+          <nav class="settings-nav">
+            <div class="settings-nav-group">App Settings</div>
+            <button class="settings-nav-item active" data-page="library">Library</button>
+            <button class="settings-nav-item" data-page="hotkeys">Hotkeys</button>
+
+            <div class="settings-nav-group">Services</div>
+            <button class="settings-nav-item" data-page="drive">Google Drive</button>
+            <button class="settings-nav-item" data-page="obs">OBS</button>
+            <button class="settings-nav-item" data-page="whisper">Speech-to-Text</button>
+            <button class="settings-nav-item" data-page="exports">Exports</button>
+
+            <div class="settings-nav-group">Gallery</div>
+            <button class="settings-nav-item" data-page="unedited">Unedited</button>
+
+            <div class="settings-nav-group" id="settings-nav-dev-group" hidden>Developer</div>
+            <button class="settings-nav-item" id="settings-nav-dev-item" data-page="developer" hidden>Dev Tools</button>
+          </nav>
+
+          <!-- Settings content area (all non-gallery pages) -->
+          <div class="settings-content" id="settings-content">
+
+            <!-- Library -->
+            <div class="settings-page active" id="settings-page-library">
+              <h2 class="settings-page-title">Library</h2>
+              <div class="card">
+                <h3>Video folder</h3>
+                <label><span>Path</span>
+                  <div class="row">
+                    <input id="set-video-root" type="text" readonly />
+                    <button id="btn-pick-folder" class="btn btn-subtle">Change…</button>
+                  </div>
+                </label>
+                <label><span>Clip threshold (minutes). Files longer than this land in Unedited.</span>
+                  <input id="set-threshold" type="number" min="1" max="600" />
+                </label>
               </div>
-            </label>
-            <label><span>Clip threshold (minutes). Files longer than this land in Unedited.</span>
-              <input id="set-threshold" type="number" min="1" max="600" />
-            </label>
-          </div>
-
-          <div class="card">
-            <h3>Hotkeys</h3>
-            <label><span>Mark clip (global)</span><input id="set-hotkey-mark" type="text" placeholder="Control+Shift+X" /></label>
-            <div class="sub">Valid modifiers: Control, Shift, Alt, Super. Example: <code>Control+Shift+X</code>.</div>
-          </div>
-
-          <div class="card">
-            <h3>Chat heatmap</h3>
-            <label class="toggle">
-              <input id="set-chat-enabled" type="checkbox" />
-              <span>Record chat heatmaps during Twitch and Kick recordings</span>
-            </label>
-            <div class="sub">Connects anonymously to Twitch IRC or Kick Pusher. Historical Kick chat replay is not supported.</div>
-          </div>
-
-          <div class="card">
-            <h3>Google Drive</h3>
-            <p class="hint">Desktop OAuth client from Google Cloud Console → APIs &amp; Services → Credentials → Desktop app.</p>
-            <label><span>Client ID</span><input id="set-drive-client" type="text" /></label>
-            <label><span>Client Secret</span><input id="set-drive-secret" type="password" /></label>
-            <div class="row">
-              <button id="btn-drive-auth" class="btn btn-primary">Connect</button>
-              <button id="btn-drive-disconnect" class="btn btn-ghost">Disconnect</button>
-              <span id="drive-state" class="state">Not connected</span>
+              <div class="settings-save-row">
+                <button id="btn-save-settings" class="btn btn-primary">Save</button>
+                <span id="settings-saved" class="state" hidden>Saved ✓</span>
+              </div>
             </div>
-          </div>
 
-          <div class="card">
-            <h3>OBS</h3>
-            <p class="hint">Tools → WebSocket Server Settings → Enable.</p>
-            <div class="row">
-              <label><span>Host</span><input id="set-obs-host" type="text" /></label>
-              <label><span>Port</span><input id="set-obs-port" type="number" /></label>
-              <label><span>Password</span><input id="set-obs-pass" type="password" /></label>
+            <!-- Hotkeys -->
+            <div class="settings-page" id="settings-page-hotkeys">
+              <h2 class="settings-page-title">Hotkeys</h2>
+              <div class="card">
+                <label><span>Mark clip (global)</span><input id="set-hotkey-mark" type="text" placeholder="Control+Shift+X" /></label>
+                <div class="sub">Valid modifiers: Control, Shift, Alt, Super. Example: <code>Control+Shift+X</code>.</div>
+              </div>
             </div>
-            <label><span>Scene name</span><input id="set-obs-scene" type="text" /></label>
-            <label><span>Window capture source name</span><input id="set-obs-source" type="text" /></label>
-            <div class="row">
-              <button id="btn-obs-connect" class="btn btn-primary">Test connect</button>
-              <span id="obs-state" class="state">Disconnected</span>
+
+            <!-- Google Drive -->
+            <div class="settings-page" id="settings-page-drive">
+              <h2 class="settings-page-title">Google Drive</h2>
+              <div class="card">
+                <p class="hint">Desktop OAuth client from Google Cloud Console → APIs &amp; Services → Credentials → Desktop app.</p>
+                <label><span>Client ID</span><input id="set-drive-client" type="text" /></label>
+                <label><span>Client Secret</span><input id="set-drive-secret" type="password" /></label>
+                <div class="row">
+                  <button id="btn-drive-auth" class="btn btn-primary">Connect</button>
+                  <button id="btn-drive-disconnect" class="btn btn-ghost">Disconnect</button>
+                  <span id="drive-state" class="state">Not connected</span>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div class="card">
-            <h3>Speech-to-text (Whisper)</h3>
-            <label class="toggle">
-              <input id="set-whisper-enabled" type="checkbox" />
-              <span>Enable live transcription during recording</span>
-            </label>
-            <label><span>Model</span>
-              <select id="set-whisper-model">
-                <option value="tiny.en">tiny.en</option>
-                <option value="base.en" selected>base.en (recommended)</option>
-                <option value="small.en">small.en</option>
-                <option value="medium.en">medium.en</option>
-              </select>
-            </label>
-            <button id="btn-whisper-test" class="btn btn-subtle">Run self-test</button>
-            <span id="whisper-state" class="state">Idle</span>
-          </div>
-
-          <div class="card">
-            <h3>Exports</h3>
-            <details class="expo"><summary>YouTube</summary>
-              <label><span>OAuth Client ID</span><input id="set-yt-client" type="text" /></label>
-              <label><span>OAuth Client Secret</span><input id="set-yt-secret" type="password" /></label>
-              <label><span>Refresh Token (scope: youtube.upload)</span><input id="set-yt-refresh" type="password" /></label>
-            </details>
-            <details class="expo"><summary>TikTok</summary>
-              <label><span>Client Key</span><input id="set-tt-key" type="text" /></label>
-              <label><span>Client Secret</span><input id="set-tt-secret" type="password" /></label>
-              <label><span>Access Token</span><input id="set-tt-access" type="password" /></label>
-            </details>
-            <details class="expo"><summary>Instagram</summary>
-              <label><span>Business Account ID</span><input id="set-ig-user" type="text" /></label>
-              <label><span>Long-lived Access Token</span><input id="set-ig-access" type="password" /></label>
-            </details>
-            <details class="expo"><summary>Twitter / X</summary>
-              <label><span>API Key</span><input id="set-tw-key" type="text" /></label>
-              <label><span>API Secret</span><input id="set-tw-secret" type="password" /></label>
-              <label><span>Access Token</span><input id="set-tw-access" type="password" /></label>
-              <label><span>Access Secret</span><input id="set-tw-access-secret" type="password" /></label>
-            </details>
-          </div>
-
-          <div class="card">
-            <button id="btn-save-settings" class="btn btn-primary">Save all settings</button>
-            <button id="btn-crash-test" class="btn btn-ghost">Test crash screen</button>
-            <span id="settings-saved" class="state" hidden>Saved</span>
-          </div>
-
-          <div class="card" id="dev-tools-card" hidden>
-            <h3>Dev tools</h3>
-            <p class="hint">Only visible when launched with <code>npm run dev</code>.</p>
-            <div class="row">
-              <button id="btn-inject-heatmap" class="btn btn-subtle">Inject fake heatmap</button>
-              <span id="inject-heatmap-state" class="state"></span>
+            <!-- OBS -->
+            <div class="settings-page" id="settings-page-obs">
+              <h2 class="settings-page-title">OBS</h2>
+              <div class="card">
+                <p class="hint">Tools → WebSocket Server Settings → Enable.</p>
+                <div class="row">
+                  <label><span>Host</span><input id="set-obs-host" type="text" /></label>
+                  <label><span>Port</span><input id="set-obs-port" type="number" /></label>
+                  <label><span>Password</span><input id="set-obs-pass" type="password" /></label>
+                </div>
+                <label><span>Scene name</span><input id="set-obs-scene" type="text" /></label>
+                <label><span>Window capture source name</span><input id="set-obs-source" type="text" /></label>
+                <div class="row">
+                  <button id="btn-obs-connect" class="btn btn-primary">Test connect</button>
+                  <span id="obs-state" class="state">Disconnected</span>
+                </div>
+              </div>
             </div>
-            <div class="sub">Generates a fake heatmap on the latest library item so you can test the timeline without a live recording.</div>
-          </div>
-        </div><!-- /settings-panel-general -->
 
-        <!-- Unedited gallery panel (library-style split layout) -->
-        <div class="library-body" id="settings-panel-unedited" hidden>
+            <!-- Speech-to-Text + Chat heatmap -->
+            <div class="settings-page" id="settings-page-whisper">
+              <h2 class="settings-page-title">Speech-to-Text</h2>
+              <div class="card">
+                <h3>Whisper</h3>
+                <label class="toggle">
+                  <input id="set-whisper-enabled" type="checkbox" />
+                  <span>Enable live transcription during recording</span>
+                </label>
+                <label><span>Model</span>
+                  <select id="set-whisper-model">
+                    <option value="tiny.en">tiny.en</option>
+                    <option value="base.en" selected>base.en (recommended)</option>
+                    <option value="small.en">small.en</option>
+                    <option value="medium.en">medium.en</option>
+                  </select>
+                </label>
+                <button id="btn-whisper-test" class="btn btn-subtle">Run self-test</button>
+                <span id="whisper-state" class="state">Idle</span>
+              </div>
+              <div class="card">
+                <h3>Chat heatmap</h3>
+                <label class="toggle">
+                  <input id="set-chat-enabled" type="checkbox" />
+                  <span>Record chat heatmaps during Twitch and Kick recordings</span>
+                </label>
+                <div class="sub">Connects anonymously to Twitch IRC or Kick Pusher. Historical Kick chat replay is not supported.</div>
+              </div>
+            </div>
+
+            <!-- Exports -->
+            <div class="settings-page" id="settings-page-exports">
+              <h2 class="settings-page-title">Exports</h2>
+              <div class="card">
+                <details class="expo"><summary>YouTube</summary>
+                  <label><span>OAuth Client ID</span><input id="set-yt-client" type="text" /></label>
+                  <label><span>OAuth Client Secret</span><input id="set-yt-secret" type="password" /></label>
+                  <label><span>Refresh Token (scope: youtube.upload)</span><input id="set-yt-refresh" type="password" /></label>
+                </details>
+                <details class="expo"><summary>TikTok</summary>
+                  <label><span>Client Key</span><input id="set-tt-key" type="text" /></label>
+                  <label><span>Client Secret</span><input id="set-tt-secret" type="password" /></label>
+                  <label><span>Access Token</span><input id="set-tt-access" type="password" /></label>
+                </details>
+                <details class="expo"><summary>Instagram</summary>
+                  <label><span>Business Account ID</span><input id="set-ig-user" type="text" /></label>
+                  <label><span>Long-lived Access Token</span><input id="set-ig-access" type="password" /></label>
+                </details>
+                <details class="expo"><summary>Twitter / X</summary>
+                  <label><span>API Key</span><input id="set-tw-key" type="text" /></label>
+                  <label><span>API Secret</span><input id="set-tw-secret" type="password" /></label>
+                  <label><span>Access Token</span><input id="set-tw-access" type="password" /></label>
+                  <label><span>Access Secret</span><input id="set-tw-access-secret" type="password" /></label>
+                </details>
+              </div>
+            </div>
+
+            <!-- Developer -->
+            <div class="settings-page" id="settings-page-developer">
+              <h2 class="settings-page-title">Developer</h2>
+              <div class="card">
+                <p class="hint">Only visible when launched with <code>npm run dev</code>.</p>
+                <div class="row">
+                  <button id="btn-inject-heatmap" class="btn btn-subtle">Inject fake heatmap</button>
+                  <span id="inject-heatmap-state" class="state"></span>
+                </div>
+                <div class="sub">Generates a fake heatmap on the latest library item so you can test the timeline without a live recording.</div>
+                <button id="btn-crash-test" class="btn btn-ghost">Test crash screen</button>
+              </div>
+            </div>
+
+          </div><!-- /settings-content -->
+
+          <!-- Unedited gallery (full split layout, replaces content area) -->
+          <div class="library-body" id="settings-panel-unedited" hidden>
           <div class="file-list" id="unedited-file-list">
             <div class="unedited-path-row">
               <input id="set-unedited-root" type="text" readonly />
@@ -401,26 +508,24 @@
               <div class="player-wrap">
                 <video id="unedited-video-player" controls playsinline></video>
                 <div class="video-unavailable" id="unedited-video-unavailable" hidden>
-                  <strong>Heatmap-only mode</strong>
-                  <span>This item has no playable media attached.</span>
+                  <strong id="unedited-unavailable-title">Heatmap-only mode</strong>
+                  <span id="unedited-unavailable-sub">This item has no playable media attached.</span>
+                  <button id="unedited-btn-remove-item" class="btn btn-subtle" hidden>Remove from Library</button>
                 </div>
               </div>
 
-              <div class="card timeline-card">
-                <div class="timeline-header">
-                  <div>
-                    <strong>Heatmap timeline</strong>
-                    <div class="sub" id="unedited-heatmap-meta">No heatmap loaded yet.</div>
-                  </div>
-                  <button id="unedited-btn-reset-zoom" class="btn btn-ghost">Reset Zoom</button>
+              <div class="card unedited-timeline-card">
+                <div class="unedited-timeline-header">
+                  <span class="sub" id="unedited-heatmap-meta">No heatmap loaded yet.</span>
+                  <button id="unedited-btn-reset-zoom" class="btn btn-ghost">Reset</button>
                 </div>
                 <div class="timeline-wrap" id="unedited-timeline-wrap">
                   <div class="timeline-lane">
-                    <canvas id="unedited-heatmap-overview" height="52"></canvas>
+                    <canvas id="unedited-heatmap-overview" height="48"></canvas>
                     <div id="unedited-overview-window"></div>
                   </div>
                   <div class="timeline-lane detail-lane">
-                    <canvas id="unedited-heatmap-detail" height="96"></canvas>
+                    <canvas id="unedited-heatmap-detail" height="110"></canvas>
                   </div>
                   <div class="timeline-tooltip" id="unedited-timeline-tooltip" hidden></div>
                 </div>
@@ -462,6 +567,8 @@
             </div>
           </div>
         </div><!-- /settings-panel-unedited -->
+
+        </div><!-- /settings-layout -->
       </section>
     </main>
   </div>

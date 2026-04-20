@@ -452,6 +452,20 @@ ipcMain.handle('clip:vertical', async (_event, { sourcePath, inSec, outSec, crop
   return output;
 });
 
+ipcMain.handle('fs:exists', (_event, filePath) => fs.existsSync(filePath));
+
+ipcMain.handle('clip:trim-copy', async (_event, { sourcePath, inSec, outSec }) => {
+  const { clipsDir } = ensureDirs();
+  const output = await clip.ghostClip({ sourcePath, outDir: clipsDir, inSec, outSec });
+  await refreshIndex({ notify: true });
+  return output;
+});
+ipcMain.handle('clip:trim-overwrite', async (_event, { sourcePath, inSec, outSec }) => {
+  await clip.trimInPlace({ sourcePath, inSec, outSec });
+  await refreshIndex({ notify: true });
+  return sourcePath;
+});
+
 // --- Drive ----------------------------------------------------------------
 
 ipcMain.handle('drive:status', () => drive.status(store));

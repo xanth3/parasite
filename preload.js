@@ -8,6 +8,7 @@ const api = {
   pickVideoFolder: () => ipcRenderer.invoke('settings:pickFolder'),
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
 
+  fileExists: (filePath) => ipcRenderer.invoke('fs:exists', filePath),
   listLibrary: () => ipcRenderer.invoke('library:list'),
   refreshLibrary: () => ipcRenderer.invoke('library:refresh'),
   revealInFolder: (itemId) => ipcRenderer.invoke('library:reveal', itemId),
@@ -32,6 +33,8 @@ const api = {
   clip: {
     ghost: (payload) => ipcRenderer.invoke('clip:ghost', payload),
     vertical: (payload) => ipcRenderer.invoke('clip:vertical', payload),
+    trimCopy: (payload) => ipcRenderer.invoke('clip:trim-copy', payload),
+    trimOverwrite: (payload) => ipcRenderer.invoke('clip:trim-overwrite', payload),
     onProgress: (callback) => ipcRenderer.on('clip:progress', (_event, payload) => callback(payload))
   },
 

@@ -89,4 +89,27 @@ async function verticalReframe({ sourcePath, outDir, inSec, outSec, crop, onProg
   return outPath;
 }
 
-module.exports = { ghostClip, verticalReframe };
+// Trim a file in-place: trim to a temp file, then replace original.
+async function trimInPlace({ sourcePath, inSec, outSec }) {
+  const tmpPath = sourcePath + '.parasite-trim.tmp.mp4';
+  const args = [
+    '-y',
+    '-ss', fmtTime(inSec),
+    '-to', fmtTime(outSec),
+    '-i', sourcePath,
+    '-c', 'copy',
+    '-avoid_negative_ts', 'make_zero',
+    '-movflags', '+faststart',
+    tmpPath
+  ];
+  try {
+    await runFfmpeg(args);
+    fs.unlinkSync(sourcePath);
+    fs.renameSync(tmpPath, sourcePath);
+  } catch (err) {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    throw err;
+  }
+}
+
+module.exports = { ghostClip, verticalReframe, trimInPlace };

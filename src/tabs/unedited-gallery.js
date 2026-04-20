@@ -39,6 +39,17 @@ export async function mountUneditedGallery({ toast }) {
     if (currentItem) { initTimelineWindow(currentItem); drawTimelines(); }
   });
 
+  $('#unedited-btn-remove-item').addEventListener('click', async () => {
+    if (!currentItem) return;
+    try {
+      await window.api.deleteItem(currentItem.id);
+      _toast('Removed from library.', 'success');
+      clearSelection();
+    } catch (e) {
+      $('#unedited-btn-remove-item').hidden = true;
+    }
+  });
+
   $('#unedited-btn-build-vod').addEventListener('click', onBuildFromTwitch);
   $('#unedited-btn-build-cancel').addEventListener('click', onCancelBuild);
   $('#unedited-btn-import-json').addEventListener('click', onImportNormalized);
@@ -228,18 +239,39 @@ function renderPlaybackState() {
   const banner = $('#unedited-playback-banner');
   const unavailable = $('#unedited-video-unavailable');
   const video = $('#unedited-video-player');
+  const isDeleted = runtimePlaybackError === '__FILE_DELETED__';
   const hasMedia = !!currentItem?.path && !runtimePlaybackError;
-  const errorText = runtimePlaybackError || null;
-  banner.hidden = !errorText;
-  banner.textContent = errorText || '';
+
+  banner.hidden = !runtimePlaybackError || isDeleted;
+  banner.textContent = (!isDeleted && runtimePlaybackError) ? runtimePlaybackError : '';
+
   unavailable.hidden = hasMedia;
   video.hidden = !hasMedia;
+
+  if (isDeleted) {
+    $('#unedited-unavailable-title').textContent = 'File deleted';
+    $('#unedited-unavailable-sub').textContent = 'This file no longer exists on disk.';
+    $('#unedited-btn-remove-item').hidden = false;
+  } else {
+    $('#unedited-unavailable-title').textContent = 'Heatmap-only mode';
+    $('#unedited-unavailable-sub').textContent = 'This item has no playable media attached.';
+    $('#unedited-btn-remove-item').hidden = true;
+  }
 }
 
-function loadVideo(item) {
+async function loadVideo(item) {
   const video = $('#unedited-video-player');
   if (!item.path) {
     runtimePlaybackError = 'No media attached.';
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    renderPlaybackState();
+    return;
+  }
+  const exists = await window.api.fileExists(item.path);
+  if (!exists) {
+    runtimePlaybackError = '__FILE_DELETED__';
     video.pause();
     video.removeAttribute('src');
     video.load();

@@ -19,21 +19,33 @@ export async function mountSettings({ onChange, toast }) {
   settings = await window.api.getSettings();
   hydrate();
 
-  // Sub-tab switching
-  document.querySelectorAll('#tab-settings .sub-tab').forEach((btn) => {
+  // Discord-style page navigation
+  const navItems = document.querySelectorAll('#tab-settings .settings-nav-item');
+  navItems.forEach((btn) => {
     btn.addEventListener('click', () => {
-      const sub = btn.dataset.settingsSub;
-      document.querySelectorAll('#tab-settings .sub-tab').forEach(b => b.classList.toggle('active', b === btn));
-      const showGeneral = sub === 'general';
-      $('#settings-panel-general').hidden = !showGeneral;
-      $('#settings-panel-unedited').hidden = showGeneral;
-      if (showGeneral) {
-        _deactivateUnedited?.();
-      } else {
+      const page = btn.dataset.page;
+      navItems.forEach(b => b.classList.toggle('active', b === btn));
+
+      if (page === 'unedited') {
+        $('#settings-content').hidden = true;
+        $('#settings-panel-unedited').hidden = false;
         _activateUnedited?.();
+      } else {
+        $('#settings-content').hidden = false;
+        $('#settings-panel-unedited').hidden = true;
+        _deactivateUnedited?.();
+        document.querySelectorAll('.settings-page').forEach(p => {
+          p.classList.toggle('active', p.id === `settings-page-${page}`);
+        });
       }
     });
   });
+
+  // Show dev section only in dev mode
+  if (window.api.isDev) {
+    $('#settings-nav-dev-group').hidden = false;
+    $('#settings-nav-dev-item').hidden = false;
+  }
 
   $('#btn-pick-folder').addEventListener('click', async () => {
     const picked = await window.api.pickVideoFolder();
@@ -83,7 +95,6 @@ export async function mountSettings({ onChange, toast }) {
   });
 
   if (window.api.isDev) {
-    $('#dev-tools-card').hidden = false;
     $('#btn-inject-heatmap').addEventListener('click', async () => {
       const stateEl = $('#inject-heatmap-state');
       try {
