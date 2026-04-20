@@ -13,6 +13,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "test": "node test/run-tests.js",
     "build": "electron-builder --win --x64",
     "dist": "electron-builder --win --x64 --publish never",
     "postinstall": "electron-builder install-app-deps"

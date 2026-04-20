@@ -1,9 +1,7 @@
-// Parasite — Electron main process
-// Owns: window lifecycle, filesystem access, SQLite index, Drive OAuth,
-// OBS websocket, chat heatmap, Whisper transcription, clip extraction,
-// batch queue, global hotkeys, crash reporting, and IPC to the renderer.
+// Parasite Electron main process.
+// Owns the window lifecycle, filesystem access, SQLite index, recording,
+// historical heatmap jobs, exports, Drive, and IPC to the renderer.
 
-// GPU acceleration / smooth-scroll hints must be set before app.ready.
 const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut } = require('electron');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
@@ -32,8 +30,8 @@ const chat = require('./src/lib/chat');
 const clip = require('./src/lib/clip');
 const queue = require('./src/lib/queue');
 const crash = require('./src/lib/crash');
-
-// --- Settings store -----------------------------------------------------
+const heatmapJobs = require('./src/lib/heatmap-jobs');
+const { BUCKET_MS, heatmapPathForMedia } = require('./src/lib/heatmap-core');
 
 const defaultVideoRoot = path.join(os.homedir(), 'Videos', 'Parasite');
 const store = new Store({
@@ -44,14 +42,16 @@ const store = new Store({
     clipThresholdMinutes: 30,
     drive: { enabled: false, defaultFolderId: null, defaultFolderName: 'Parasite Uploads' },
     obs: {
-      host: 'localhost', port: 4455, password: '',
+      host: 'localhost',
+      port: 4455,
+      password: '',
       windowCaptureScene: 'Parasite Stream',
       windowCaptureSource: 'Parasite Window Capture'
     },
     transcription: { enabled: false, model: 'base.en', outputDir: null },
     exports: {
       youtube: { clientId: '', clientSecret: '', refreshToken: '' },
-      tiktok:  { clientKey: '', clientSecret: '', accessToken: '' },
+      tiktok: { clientKey: '', clientSecret: '', accessToken: '' },
       instagram: { userId: '', accessToken: '' },
       twitter: { apiKey: '', apiSecret: '', accessToken: '', accessSecret: '' }
     },
@@ -61,75 +61,159 @@ const store = new Store({
   }
 });
 
-// --- Library scanning (DB-backed) ---------------------------------------
-
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.mov', '.webm', '.avi', '.flv', '.ts', '.m4v']);
+
+let mainWindow = null;
+let libraryWatcher = null;
+let refreshIndexPromise = null;
+let activeChatRecorder = null;
+let activeRecordingStartMs = null;
+let activeRecordingChannel = null;
+let activeRecordingService = null;
 
 function ensureDirs() {
   const root = store.get('videoRoot');
   const clipsDir = path.join(root, store.get('clipsFolderName'));
-  const unDir    = path.join(root, store.get('unfinishedFolderName'));
-  for (const d of [root, clipsDir, unDir]) fs.mkdirSync(d, { recursive: true });
-  return { root, clipsDir, unDir };
+  const unfinishedDir = path.join(root, store.get('unfinishedFolderName'));
+  for (const dir of [root, clipsDir, unfinishedDir]) fs.mkdirSync(dir, { recursive: true });
+  return { root, clipsDir, unfinishedDir };
+}
+
+function emit(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
 }
 
 function probeDuration(filePath) {
   return new Promise((resolve) => {
-    ffmpeg.ffprobe(filePath, (err, meta) => resolve(err || !meta?.format ? 0 : meta.format.duration || 0));
+    ffmpeg.ffprobe(filePath, (error, metadata) => {
+      resolve(error || !metadata?.format ? 0 : metadata.format.duration || 0);
+    });
   });
 }
 
-async function walkVideos(dir) {
-  const out = [];
-  let entries = [];
-  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return out; }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) { out.push(...await walkVideos(full)); continue; }
-    if (!VIDEO_EXTS.has(path.extname(entry.name).toLowerCase())) continue;
-    const stat = await fsp.stat(full);
-    out.push({ path: full, name: entry.name, size: stat.size, mtime: stat.mtimeMs });
-  }
-  return out;
+function inferLegacyRecordingMetadata(filePath) {
+  const stem = path.basename(filePath, path.extname(filePath));
+  const match = /^(twitch|kick)-(.+)-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})$/i.exec(stem);
+  if (!match) return null;
+
+  const [, service, channel, year, month, day, hour, minute, second] = match;
+  const startedAt = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second)
+  ).getTime();
+
+  return {
+    source_kind: 'recording',
+    source_service: service.toLowerCase(),
+    source_channel: channel,
+    recorded_started_at: Number.isFinite(startedAt) ? startedAt : null
+  };
 }
 
-// Incremental index: only re-probe files whose size/mtime changed since
-// the last scan. Full rescan would hit every file with ffprobe.
-async function refreshIndex() {
-  const files = await walkVideos(store.get('videoRoot'));
-  const thresholdSec = store.get('clipThresholdMinutes') * 60;
-  const seen = new Set();
-
-  for (const f of files) {
-    seen.add(f.path);
-    const existing = db.getVideo(f.path);
-    const changed = !existing || existing.size !== f.size || existing.mtime !== f.mtime;
-    const duration = changed ? await probeDuration(f.path) : existing.duration;
-    const category = duration >= thresholdSec ? 'unedited' : 'clips';
-    db.upsertVideoRow({
-      path: f.path, name: f.name, size: f.size, mtime: f.mtime,
-      duration, category, probed_at: Date.now(),
-      heatmap_path: existing?.heatmap_path || null
+async function walkVideos(dir) {
+  const entries = await safeReadDir(dir);
+  const results = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...await walkVideos(fullPath));
+      continue;
+    }
+    if (!VIDEO_EXTS.has(path.extname(entry.name).toLowerCase())) continue;
+    const stat = await fsp.stat(fullPath).catch(() => null);
+    if (!stat) continue;
+    results.push({
+      path: fullPath,
+      name: entry.name,
+      size: stat.size,
+      mtime: stat.mtimeMs
     });
   }
+  return results;
+}
 
-  // Drop rows whose files disappeared.
-  for (const row of db.listVideos()) {
-    if (!seen.has(row.path)) db.deleteVideo(row.path);
+async function safeReadDir(dir) {
+  try {
+    return await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
   }
 }
 
-// --- Window -------------------------------------------------------------
+async function refreshIndex({ notify = false } = {}) {
+  if (refreshIndexPromise) return refreshIndexPromise;
 
-let mainWindow = null;
-let libraryWatcher = null;
-let activeChatRecorder = null;
-let activeRecordingStartMs = null;
-let activeRecordingChannel = null;
+  refreshIndexPromise = (async () => {
+    const files = await walkVideos(store.get('videoRoot'));
+    const seenPaths = new Set();
+    const thresholdSec = Number(store.get('clipThresholdMinutes') || 30) * 60;
+
+    for (const file of files) {
+      seenPaths.add(file.path);
+      const existing = db.getItemByPath(file.path);
+      const legacySource = (!existing?.source_service || !existing?.source_channel || !existing?.recorded_started_at)
+        ? inferLegacyRecordingMetadata(file.path)
+        : null;
+      const changed = !existing || existing.size !== file.size || existing.mtime !== file.mtime || !existing.playback_available;
+      const duration = changed ? await probeDuration(file.path) : existing.duration;
+      const category = duration >= thresholdSec ? 'unedited' : 'clips';
+
+      db.upsertFileItem({
+        path: file.path,
+        name: file.name,
+        size: file.size,
+        mtime: file.mtime,
+        duration,
+        category,
+        probed_at: Date.now(),
+        heatmap_path: existing?.heatmap_path || null,
+        playback_available: 1,
+        playback_error: null,
+        source_kind: existing?.source_kind || legacySource?.source_kind || 'file',
+        source_service: existing?.source_service || legacySource?.source_service || null,
+        source_vod_id: existing?.source_vod_id || null,
+        source_channel: existing?.source_channel || legacySource?.source_channel || null,
+        recorded_started_at: existing?.recorded_started_at || legacySource?.recorded_started_at || null,
+        recorded_finished_at: existing?.recorded_finished_at || null,
+        import_payload_path: existing?.import_payload_path || null
+      });
+    }
+
+    db.markMissingItems(seenPaths);
+    if (notify) emit('library:changed');
+  })().finally(() => {
+    refreshIndexPromise = null;
+  });
+
+  return refreshIndexPromise;
+}
+
+function startLibraryWatcher() {
+  if (libraryWatcher) libraryWatcher.close().catch(() => {});
+  const { root } = ensureDirs();
+  libraryWatcher = chokidar.watch(root, {
+    ignoreInitial: true,
+    depth: 4,
+    awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 500 }
+  });
+  const handleChange = () => refreshIndex({ notify: true });
+  libraryWatcher.on('add', handleChange);
+  libraryWatcher.on('change', handleChange);
+  libraryWatcher.on('unlink', handleChange);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1440, height: 900, minWidth: 1100, minHeight: 720,
+    width: 1440,
+    height: 900,
+    minWidth: 1100,
+    minHeight: 720,
     title: 'Parasite',
     backgroundColor: '#202225',
     autoHideMenuBar: true,
@@ -138,140 +222,270 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      backgroundThrottling: false // keep uploads/recording smooth when minimized
+      backgroundThrottling: false
     }
   });
+
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
-  if (process.argv.includes('--dev')) mainWindow.webContents.openDevTools({ mode: 'detach' });
+  if (process.argv.includes('--dev')) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
   startLibraryWatcher();
 }
 
-function startLibraryWatcher() {
-  if (libraryWatcher) libraryWatcher.close().catch(() => {});
-  const { root } = ensureDirs();
-  libraryWatcher = chokidar.watch(root, {
-    ignoreInitial: true, depth: 4,
-    awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 500 }
-  });
-  const notify = async () => {
-    await refreshIndex();
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('library:changed');
+function serializeLibraryItem(item, latestJobMap) {
+  const heatmapPath = item.heatmap_path && fs.existsSync(item.heatmap_path) ? item.heatmap_path : null;
+  const latestJob = latestJobMap.get(item.item_id) || null;
+  let heatmapStatus = heatmapPath ? 'ready' : 'missing';
+  if (latestJob?.status === 'running' || latestJob?.status === 'pending') heatmapStatus = 'building';
+  else if (!heatmapPath && latestJob?.status === 'error') heatmapStatus = 'error';
+  else if (!heatmapPath && latestJob?.status === 'cancelled') heatmapStatus = 'cancelled';
+
+  return {
+    id: item.item_id,
+    path: item.path,
+    name: item.name,
+    size: item.size,
+    mtime: item.mtime,
+    duration: item.duration,
+    category: item.category,
+    playback: {
+      available: !!item.playback_available && !!item.path,
+      error: item.playback_error || null
+    },
+    heatmap: {
+      status: heatmapStatus,
+      path: heatmapPath,
+      jobId: latestJob?.job_id || null,
+      progress: latestJob?.progress || 0,
+      progressLabel: latestJob?.progress_label || null,
+      error: latestJob?.error || null
+    },
+    source: {
+      kind: item.source_kind || null,
+      service: item.source_service || null,
+      vodId: item.source_vod_id || null,
+      channel: item.source_channel || null,
+      recordedStartedAt: item.recorded_started_at || null,
+      recordedFinishedAt: item.recorded_finished_at || null
+    }
   };
-  libraryWatcher.on('add', notify).on('unlink', notify).on('change', notify);
 }
 
-function emit(channel, payload) {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+function listSerializedItems() {
+  const latestJobMap = new Map(db.listLatestHeatmapJobs().map((job) => [job.item_id, job]));
+  return db.listItems().map((item) => serializeLibraryItem(item, latestJobMap));
 }
 
-// --- IPC: settings ------------------------------------------------------
+function registerHotkeys() {
+  globalShortcut.unregisterAll();
+  const binding = store.get('hotkeys.markClip') || 'Control+Shift+X';
+  try {
+    const ok = globalShortcut.register(binding, () => {
+      const item = activeRecordingStartMs && activeRecordingChannel
+        ? findOpenRecordingItem(activeRecordingService, activeRecordingChannel, activeRecordingStartMs)
+        : null;
+      const id = db.insertFlag({
+        item_id: item?.item_id || null,
+        channel: activeRecordingChannel,
+        created_at: Date.now(),
+        offset_ms: activeRecordingStartMs ? Date.now() - activeRecordingStartMs : null,
+        note: 'Marked via hotkey'
+      });
+      emit('flag:captured', { id, when: Date.now() });
+    });
+    if (!ok) console.error('[hotkey] failed to register', binding);
+  } catch (error) {
+    console.error('[hotkey] error', error.message);
+  }
+}
+
+function findOpenRecordingItem(service, channel, startedAt) {
+  return db.listItems().find((item) => (
+    item.source_service === service &&
+    item.source_channel === channel &&
+    item.recorded_started_at === startedAt
+  ));
+}
+
+function humanProgressEvent(job, extra = {}) {
+  return {
+    jobId: job.job_id,
+    itemId: job.item_id,
+    status: job.status,
+    progress: job.progress,
+    label: job.progress_label,
+    error: job.error || null,
+    ...extra
+  };
+}
+
+// --- Settings -------------------------------------------------------------
 
 ipcMain.handle('settings:get', () => store.store);
-ipcMain.handle('settings:set', (_e, patch) => {
-  for (const [k, v] of Object.entries(patch)) store.set(k, v);
+ipcMain.handle('settings:set', async (_event, patch) => {
+  for (const [key, value] of Object.entries(patch)) {
+    store.set(key, value);
+  }
   registerHotkeys();
   startLibraryWatcher();
+  await refreshIndex({ notify: true });
   return store.store;
 });
+
 ipcMain.handle('settings:pickFolder', async () => {
-  const res = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] });
-  if (res.canceled || !res.filePaths[0]) return null;
-  store.set('videoRoot', res.filePaths[0]);
-  await refreshIndex();
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  store.set('videoRoot', result.filePaths[0]);
+  await refreshIndex({ notify: true });
   startLibraryWatcher();
-  return res.filePaths[0];
+  return result.filePaths[0];
 });
 
-// --- IPC: library -------------------------------------------------------
+// --- Library --------------------------------------------------------------
 
-ipcMain.handle('library:list', async () => {
-  await refreshIndex();
-  const rows = db.listVideos();
-  return rows.map((r) => ({
-    path: r.path, name: r.name, size: r.size, mtime: r.mtime,
-    duration: r.duration, category: r.category, heatmap_path: r.heatmap_path
-  }));
+ipcMain.handle('library:list', async () => listSerializedItems());
+ipcMain.handle('library:refresh', async () => {
+  await refreshIndex({ notify: false });
+  return listSerializedItems();
 });
-ipcMain.handle('library:reveal', (_e, filePath) => shell.showItemInFolder(filePath));
-ipcMain.handle('library:rename', async (_e, filePath, newName) => {
-  const dir = path.dirname(filePath);
-  const clean = newName.replace(/[\\/:"*?<>|]+/g, '').trim();
-  if (!clean) throw new Error('Invalid filename');
-  const ext = path.extname(filePath);
-  const finalName = clean.toLowerCase().endsWith(ext.toLowerCase()) ? clean : clean + ext;
-  const target = path.join(dir, finalName);
-  await fsp.rename(filePath, target);
-  db.renameVideo(filePath, target, finalName);
-  return target;
-});
-ipcMain.handle('library:delete', async (_e, filePath) => {
-  await shell.trashItem(filePath);
-  db.deleteVideo(filePath);
+ipcMain.handle('library:reveal', (_event, itemId) => {
+  const item = db.getItemById(itemId);
+  if (!item?.path) return false;
+  shell.showItemInFolder(item.path);
   return true;
 });
-ipcMain.handle('library:flags', (_e, filePath) => db.flagsForVideo(filePath));
-ipcMain.handle('library:heatmap', (_e, heatmapPath) => {
-  if (!heatmapPath || !fs.existsSync(heatmapPath)) return null;
-  try { return JSON.parse(fs.readFileSync(heatmapPath, 'utf8')); } catch { return null; }
+ipcMain.handle('library:rename', async (_event, itemId, newName) => {
+  const item = db.getItemById(itemId);
+  if (!item?.path) throw new Error('Only media files can be renamed.');
+  const directory = path.dirname(item.path);
+  const clean = newName.replace(/[\\/:"*?<>|]+/g, '').trim();
+  if (!clean) throw new Error('Invalid filename.');
+  const ext = path.extname(item.path);
+  const finalName = clean.toLowerCase().endsWith(ext.toLowerCase()) ? clean : `${clean}${ext}`;
+  const target = path.join(directory, finalName);
+  await fsp.rename(item.path, target);
+  db.renameItem(itemId, target, finalName);
+  const oldHeatmapPath = item.heatmap_path;
+  const nextHeatmapPath = oldHeatmapPath && fs.existsSync(oldHeatmapPath) ? heatmapPathForMedia(target) : null;
+  if (nextHeatmapPath && oldHeatmapPath !== nextHeatmapPath) {
+    await fsp.rename(oldHeatmapPath, nextHeatmapPath).catch(() => {});
+    db.updateItem(itemId, { heatmap_path: nextHeatmapPath });
+  }
+  emit('library:changed');
+  return serializeLibraryItem(db.getItemById(itemId), new Map(db.listLatestHeatmapJobs().map((job) => [job.item_id, job])));
+});
+ipcMain.handle('library:delete', async (_event, itemId) => {
+  const item = db.getItemById(itemId);
+  if (!item) return true;
+  const activeJob = db.latestHeatmapJobForItem(itemId);
+  if (activeJob && (activeJob.status === 'pending' || activeJob.status === 'running')) {
+    await heatmapJobs.cancel(activeJob.job_id).catch(() => {});
+  }
+  const itemDir = path.join(app.getPath('userData'), 'library-items', String(item.item_id));
+  if (item.path && fs.existsSync(item.path)) await shell.trashItem(item.path);
+  if (item.heatmap_path && fs.existsSync(item.heatmap_path)) await shell.trashItem(item.heatmap_path).catch(() => {});
+  if (item.import_payload_path && fs.existsSync(item.import_payload_path)) {
+    await shell.trashItem(item.import_payload_path).catch(() => {});
+  }
+  db.deleteItem(itemId);
+  if (fs.existsSync(itemDir)) {
+    await fsp.rm(itemDir, { recursive: true, force: true }).catch(() => {});
+  }
+  emit('library:changed');
+  return true;
+});
+ipcMain.handle('library:flags', (_event, itemId) => db.flagsForItem(itemId));
+ipcMain.handle('library:loadHeatmap', (_event, itemId) => {
+  const item = db.getItemById(itemId);
+  if (!item?.heatmap_path || !fs.existsSync(item.heatmap_path)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(item.heatmap_path, 'utf8'));
+  } catch {
+    return null;
+  }
 });
 
-// --- IPC: clip (ghost / vertical) --------------------------------------
+// --- Heatmap jobs ---------------------------------------------------------
 
-ipcMain.handle('clip:ghost', async (_e, { sourcePath, inSec, outSec }) => {
-  const { clipsDir } = ensureDirs();
-  const out = await clip.ghostClip({ sourcePath, outDir: clipsDir, inSec, outSec });
-  await refreshIndex();
-  return out;
+ipcMain.handle('heatmap:buildFromTwitch', async (_event, { itemId, vodInput }) => {
+  const result = await heatmapJobs.buildFromTwitch({ itemId, vodInput });
+  emit('library:changed');
+  return result;
 });
-ipcMain.handle('clip:vertical', async (_e, { sourcePath, inSec, outSec, crop }) => {
+ipcMain.handle('heatmap:pickImportFile', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  return result.canceled ? null : result.filePaths[0] || null;
+});
+ipcMain.handle('heatmap:importNormalized', async (_event, { jsonPath }) => {
+  const result = await heatmapJobs.importNormalized({ jsonPath });
+  emit('library:changed');
+  return result;
+});
+ipcMain.handle('heatmap:cancel', (_event, jobId) => heatmapJobs.cancel(jobId));
+
+// --- Clip extraction ------------------------------------------------------
+
+ipcMain.handle('clip:ghost', async (_event, { sourcePath, inSec, outSec }) => {
   const { clipsDir } = ensureDirs();
-  const out = await clip.verticalReframe({
-    sourcePath, outDir: clipsDir, inSec, outSec, crop,
+  const output = await clip.ghostClip({ sourcePath, outDir: clipsDir, inSec, outSec });
+  await refreshIndex({ notify: true });
+  return output;
+});
+ipcMain.handle('clip:vertical', async (_event, { sourcePath, inSec, outSec, crop }) => {
+  const { clipsDir } = ensureDirs();
+  const output = await clip.verticalReframe({
+    sourcePath,
+    outDir: clipsDir,
+    inSec,
+    outSec,
+    crop,
     onProgress: (sec) => emit('clip:progress', { sec })
   });
-  await refreshIndex();
-  return out;
+  await refreshIndex({ notify: true });
+  return output;
 });
 
-// --- IPC: drive --------------------------------------------------------
+// --- Drive ----------------------------------------------------------------
 
 ipcMain.handle('drive:status', () => drive.status(store));
 ipcMain.handle('drive:startAuth', async () => drive.startAuth(store, (url) => shell.openExternal(url)));
 ipcMain.handle('drive:disconnect', () => drive.disconnect(store));
-ipcMain.handle('drive:upload', async (_e, filePath) => {
-  return drive.uploadWithProgress(store, filePath, (p) => emit('drive:progress', { filePath, ...p }));
-});
+ipcMain.handle('drive:upload', async (_event, filePath) => (
+  drive.uploadWithProgress(store, filePath, (progress) => emit('drive:progress', { filePath, ...progress }))
+));
 
-// --- IPC: OBS / recording ---------------------------------------------
+// --- OBS / recording ------------------------------------------------------
 
 ipcMain.handle('obs:connect', async () => obs.connect(store));
 ipcMain.handle('obs:disconnect', async () => obs.disconnect());
 ipcMain.handle('obs:status', () => obs.status());
 
-ipcMain.handle('record:start', async (_e, { service, channel }) => {
-  const { root } = ensureDirs();
-  const outputDir = path.join(root, store.get('unfinishedFolderName'));
-  const result = await obs.startRecordingForChannel(store, { service, channel, outputDir });
+ipcMain.handle('record:start', async (_event, { service, channel }) => {
+  const { unfinishedDir } = ensureDirs();
+  const result = await obs.startRecordingForChannel(store, { service, channel, outputDir: unfinishedDir });
 
   activeRecordingStartMs = Date.now();
   activeRecordingChannel = channel;
+  activeRecordingService = service;
 
-  // Chat heatmap
   if (store.get('chatHeatmap.enabled')) {
-    const heatmapFile = path.join(outputDir, `heatmap-${service}-${channel}-${Date.now()}.json`);
     activeChatRecorder = chat.createRecorder({
-      service, channel, heatmapPath: heatmapFile,
-      onBucketUpdate: (snap) => emit('heatmap:update', snap)
+      service,
+      channel,
+      onBucketUpdate: (snapshot) => emit('heatmap:update', snapshot)
     });
-    // Stash intended path so we can attach it to the saved video later
-    result.heatmapPath = heatmapFile;
   }
 
-  // Live transcription
   if (store.get('transcription.enabled')) {
     whisper.startLive({
       label: `${service}-${channel}`,
-      outputDir: store.get('transcription.outputDir') || outputDir,
+      outputDir: store.get('transcription.outputDir') || unfinishedDir,
       model: store.get('transcription.model'),
       onLine: (text) => emit('transcript:line', { text })
     });
@@ -281,123 +495,141 @@ ipcMain.handle('record:start', async (_e, { service, channel }) => {
 });
 
 ipcMain.handle('record:stop', async () => {
-  const r = await obs.stopRecording();
+  const stopResult = await obs.stopRecording();
   whisper.stopLive();
 
-  // Finalize chat heatmap + attach to video row
-  if (activeChatRecorder) {
-    const heatmapPath = activeChatRecorder.stop();
-    if (r?.savedPath) {
-      // Wait a beat for the file to settle, then upsert.
-      setTimeout(async () => {
-        await refreshIndex();
-        const row = db.getVideo(r.savedPath);
-        if (row) db.upsertVideoRow({ ...row, heatmap_path: heatmapPath });
-        // Attach any hotkey flags captured during this recording
-        const orphan = db.recentOrphanFlags(activeRecordingChannel, activeRecordingStartMs);
-        if (orphan.length) db.attachFlagsToVideo(orphan.map((o) => o.id), r.savedPath, activeRecordingStartMs);
-        emit('library:changed');
-      }, 2500);
-    }
-    activeChatRecorder = null;
-  }
+  const recordingStartedAt = activeRecordingStartMs;
+  const recordingFinishedAt = Date.now();
+  const recordingService = activeRecordingService;
+  const recordingChannel = activeRecordingChannel;
+  const recorder = activeChatRecorder;
+
+  activeChatRecorder = null;
   activeRecordingStartMs = null;
   activeRecordingChannel = null;
-  return r;
+  activeRecordingService = null;
+
+  if (recorder && stopResult?.savedPath) {
+    setTimeout(async () => {
+      await refreshIndex({ notify: false });
+      const item = db.getItemByPath(stopResult.savedPath);
+      if (!item) return;
+
+      const heatmapPath = heatmapPathForMedia(stopResult.savedPath);
+      recorder.stop({
+        heatmapPath,
+        meta: {
+          durationSec: item.duration || Math.max(1, (recordingFinishedAt - recordingStartedAt) / 1000),
+          source: {
+            kind: 'recording',
+            service: recordingService,
+            channel: recordingChannel
+          }
+        }
+      });
+
+      db.updateItem(item.item_id, {
+        heatmap_path: heatmapPath,
+        source_kind: item.source_kind || 'recording',
+        source_service: recordingService,
+        source_channel: recordingChannel,
+        recorded_started_at: recordingStartedAt,
+        recorded_finished_at: recordingFinishedAt
+      });
+
+      const orphanFlags = db.recentOrphanFlags(recordingChannel, recordingStartedAt);
+      if (orphanFlags.length) {
+        db.attachFlagsToItem(orphanFlags.map((flag) => flag.id), item.item_id, recordingStartedAt);
+      }
+      emit('library:changed');
+    }, 2500);
+  } else if (recorder) {
+    recorder.stop();
+  }
+
+  return stopResult;
 });
 
-// --- IPC: whisper ------------------------------------------------------
+// --- Whisper --------------------------------------------------------------
 
 ipcMain.handle('whisper:test', async () => whisper.selfTest());
-ipcMain.handle('whisper:toggle', (_e, enabled) => {
+ipcMain.handle('whisper:toggle', (_event, enabled) => {
   store.set('transcription.enabled', !!enabled);
   return store.get('transcription.enabled');
 });
 
-// --- IPC: export (direct) ----------------------------------------------
+// --- Export ---------------------------------------------------------------
 
-ipcMain.handle('export:run', async (_e, { platform, filePath, title, description, tags }) => {
-  return exporters.run(platform, {
-    filePath, title, description, tags,
+ipcMain.handle('export:run', async (_event, { platform, filePath, title, description, tags }) => (
+  exporters.run(platform, {
+    filePath,
+    title,
+    description,
+    tags,
     credentials: store.get(`exports.${platform}`),
-    onProgress: (p) => emit('export:progress', { platform, filePath, ...p })
-  });
-});
+    onProgress: (progress) => emit('export:progress', { platform, filePath, ...progress })
+  })
+));
 
-// --- IPC: queue --------------------------------------------------------
+// --- Queue ----------------------------------------------------------------
 
-ipcMain.handle('queue:enqueue', (_e, row) => {
+ipcMain.handle('queue:enqueue', (_event, row) => {
   const id = db.enqueue(row);
   queue.kick();
   emit('queue:update', { id });
   return id;
 });
-ipcMain.handle('queue:list',       ()        => db.listQueue());
-ipcMain.handle('queue:clearDone',  ()        => db.clearDoneQueue());
+ipcMain.handle('queue:list', () => db.listQueue());
+ipcMain.handle('queue:clearDone', () => db.clearDoneQueue());
 
-// --- IPC: crash --------------------------------------------------------
+// --- Crash / dev ----------------------------------------------------------
 
-ipcMain.handle('crash:simulate',   ()        => { throw new Error('Simulated crash from Settings'); });
-ipcMain.handle('dev:injectHeatmap', async (_e, filePath) => {
-  // Picks the most-recently modified video if no path given.
-  const row = filePath ? db.getVideo(filePath) : db.listVideos()[0];
-  if (!row) throw new Error('No video in library. Add a video file to your Parasite folder first.');
-
-  const BUCKET_MS = 30_000;
-  const totalBuckets = Math.ceil((row.duration * 1000) / BUCKET_MS) || 120;
-  const buckets = [];
-  for (let i = 0; i < totalBuckets; i++) {
-    let v = Math.random() * 0.5;
-    if (Math.random() < 0.15) v += 3 + Math.random() * 10;
-    if (v > 0.2) buckets.push({ t: i * BUCKET_MS, v: parseFloat(v.toFixed(2)) });
-  }
-  const heatmapData = {
-    service: 'dev', channel: 'fake-test',
-    startMs: Date.now() - row.duration * 1000,
-    bucketMs: BUCKET_MS, buckets
-  };
-  const heatmapPath = row.path.replace(/\.[^.]+$/, '') + '-heatmap-test.json';
-  fs.writeFileSync(heatmapPath, JSON.stringify(heatmapData, null, 2));
-  db.upsertVideoRow({ ...row, heatmap_path: heatmapPath });
-  return { video: row.name, heatmapPath, buckets: buckets.length };
+ipcMain.handle('crash:simulate', () => {
+  throw new Error('Simulated crash from Settings');
 });
-ipcMain.handle('open:external',    (_e, url) => shell.openExternal(url));
+ipcMain.handle('dev:injectHeatmap', async (_event, itemId) => {
+  const item = itemId ? db.getItemById(itemId) : db.listItems().find((row) => row.path);
+  if (!item) throw new Error('No library item available.');
 
-// --- Global hotkeys ----------------------------------------------------
-
-function registerHotkeys() {
-  globalShortcut.unregisterAll();
-  const binding = store.get('hotkeys.markClip') || 'Control+Shift+X';
-  try {
-    const ok = globalShortcut.register(binding, () => {
-      // Capture a timestamp now. If a recording is active we link it to
-      // that session; otherwise it's an "orphan" flag saved by wall-clock.
-      const id = db.insertFlag({
-        video_path: null,
-        channel: activeRecordingChannel,
-        created_at: Date.now(),
-        offset_ms: activeRecordingStartMs ? Date.now() - activeRecordingStartMs : null,
-        note: 'Marked via hotkey'
-      });
-      emit('flag:captured', { id, when: Date.now() });
-    });
-    if (!ok) console.error('[hotkey] failed to register', binding);
-  } catch (e) {
-    console.error('[hotkey] error', e.message);
+  const totalBuckets = Math.ceil((item.duration * 1000) / BUCKET_MS) || 120;
+  const buckets = [];
+  for (let index = 0; index < totalBuckets; index++) {
+    let value = Math.random() * 0.5;
+    if (Math.random() < 0.15) value += 3 + Math.random() * 10;
+    if (value > 0.2) buckets.push({ t: index * BUCKET_MS, v: Number(value.toFixed(2)) });
   }
-}
 
-// --- App lifecycle -----------------------------------------------------
+  const heatmapData = {
+    bucketMs: BUCKET_MS,
+    durationSec: item.duration,
+    source: { kind: 'dev', service: 'dev', channel: 'fake-test' },
+    buckets
+  };
+  const heatmapPath = item.path ? heatmapPathForMedia(item.path) : path.join(app.getPath('userData'), 'library-items', String(item.item_id), 'heatmap.parasite.json');
+  fs.mkdirSync(path.dirname(heatmapPath), { recursive: true });
+  fs.writeFileSync(heatmapPath, JSON.stringify(heatmapData, null, 2));
+  db.updateItem(item.item_id, { heatmap_path: heatmapPath });
+  emit('library:changed');
+  return { itemId: item.item_id, name: item.name, heatmapPath, buckets: buckets.length };
+});
+ipcMain.handle('open:external', (_event, url) => shell.openExternal(url));
+
+// --- App lifecycle --------------------------------------------------------
 
 app.whenReady().then(async () => {
-  crash.install({ appDataDir: app.getPath('userData') });
-  db.init(app.getPath('userData'));
+  const appDataDir = app.getPath('userData');
+  crash.install({ appDataDir });
+  db.init(appDataDir);
   ensureDirs();
   await refreshIndex();
   createWindow();
   registerHotkeys();
   queue.start({ store, emit });
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  heatmapJobs.start({ appDataDir, store, emit });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 });
 
 app.on('will-quit', () => globalShortcut.unregisterAll());
@@ -406,6 +638,7 @@ app.on('window-all-closed', () => {
   if (libraryWatcher) libraryWatcher.close().catch(() => {});
   whisper.stopLive();
   queue.stop();
+  heatmapJobs.stop();
   obs.disconnect().catch(() => {});
   if (process.platform !== 'darwin') app.quit();
 });

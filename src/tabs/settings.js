@@ -66,7 +66,7 @@ export async function mountSettings({ onChange, toast }) {
       try {
         stateEl.textContent = 'Injecting…';
         const res = await window.api.dev.injectHeatmap();
-        stateEl.textContent = `Done — ${res.buckets} buckets on "${res.video}". Switch to Library and click the file.`;
+        stateEl.textContent = `Done - ${res.buckets} buckets on "${res.name}". Switch to Library and click the file.`;
       } catch (e) {
         stateEl.textContent = 'Error: ' + e.message;
       }

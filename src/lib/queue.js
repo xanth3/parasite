@@ -22,7 +22,7 @@ function stop() { stopped = true; }
 
 async function tick() {
   if (running || stopped) return;
-  const job = db.nextPending();
+  const job = db.nextPendingQueueJob();
   if (!job) return;
   running = true;
   db.updateQueue(job.id, { status: 'running', progress: 0 });
@@ -44,6 +44,9 @@ async function tick() {
 }
 
 async function runJob(job, params) {
+  const filePath = job.item_path || job.video_path;
+  if (!filePath) throw new Error('This queue item no longer has a playable media file.');
+
   const onProgress = (p) => {
     db.updateQueue(job.id, { progress: Math.max(0, Math.min(1, p.pct || 0)) });
     emitter?.('queue:progress', { id: job.id, pct: p.pct });
@@ -51,13 +54,13 @@ async function runJob(job, params) {
 
   switch (job.action) {
     case 'drive':
-      return drive.uploadWithProgress(settingsStore, job.video_path, onProgress);
+      return drive.uploadWithProgress(settingsStore, filePath, onProgress);
     case 'youtube':
     case 'tiktok':
     case 'instagram':
     case 'twitter':
       return exporters.run(job.action, {
-        filePath: job.video_path,
+        filePath,
         title: params.title,
         description: params.description,
         tags: params.tags,

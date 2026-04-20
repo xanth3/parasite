@@ -18,10 +18,10 @@ export class VirtualList {
     new ResizeObserver(() => this._draw()).observe(this.viewport);
   }
 
-  setItems(items) {
+  setItems(items, { resetScroll = false } = {}) {
     this.items = items;
     this.spacer.style.height = `${items.length * this.rowHeight}px`;
-    this.viewport.scrollTop = 0;
+    if (resetScroll) this.viewport.scrollTop = 0;
     this._draw();
   }
 
